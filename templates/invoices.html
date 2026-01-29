@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+
+{% block title %}Faturas - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="fas fa-file-invoice-dollar"></i> Faturas dos Cartões</h2>
+            <p class="text-muted">Visualize e gerencie as faturas dos seus cartões</p>
+        </div>
+    </div>
+
+    <!-- Timeline de Faturas -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-chart-line"></i> Linha do Tempo (12 meses)</h5>
+        </div>
+        <div class="card-body">
+            <div id="timeline" class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Mês</th>
+                            <th>Total</th>
+                            <th>Status</th>
+                            <th>Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody id="timelineBody">
+                        <!-- Preenchido via JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lista de Faturas do Mês Atual -->
+    <div class="row mb-4">
+        <div class="col">
+            <h4 id="currentMonthTitle">Faturas de <span id="monthDisplay"></span></h4>
+        </div>
+    </div>
+
+    <div id="invoicesList" class="row">
+        <!-- Preenchido via JavaScript -->
+    </div>
+
+    <div id="noInvoices" class="alert alert-info" style="display: none;">
+        <i class="fas fa-info-circle"></i> Nenhuma fatura encontrada para este período.
+    </div>
+</div>
+
+<!-- Modal de Detalhes da Fatura -->
+<div class="modal fade" id="invoiceDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Detalhes da Fatura</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6 class="mb-3">Parcelas incluídas nesta fatura:</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Descrição</th>
+                                <th>Parcela</th>
+                                <th>Valor</th>
+                                <th>Vencimento</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="installmentsTableBody">
+                            <!-- Preenchido via JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentViewingMonth = new Date().getMonth() + 1;
+let currentViewingYear = new Date().getFullYear();
+let currentInvoiceDetails = null;
+
+const monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
+                    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+function updateMonthDisplay() {
+    document.getElementById('monthDisplay').textContent = 
+        `${monthNames[currentViewingMonth]}/${currentViewingYear}`;
+}
+
+async function loadTimeline() {
+    try {
+        const response = await fetch('/invoices/api/timeline');
+        const timeline = await response.json();
+        
+        const tbody = document.getElementById('timelineBody');
+        tbody.innerHTML = '';
+        
+        timeline.forEach(item => {
+            const row = document.createElement('tr');
+            if (item.is_current) row.classList.add('table-primary');
+            
+            let statusBadge = '';
+            if (item.is_paid) {
+                statusBadge = '<span class="badge bg-success">PAGA ✓</span>';
+            } else if (item.is_past) {
+                statusBadge = '<span class="badge bg-warning">ABERTA</span>';
+            } else if (item.is_current) {
+                statusBadge = '<span class="badge bg-primary">👁️ ATUAL</span>';
+            } else {
+                statusBadge = '<span class="badge bg-secondary">PROJEÇÃO</span>';
+            }
+            
+            row.innerHTML = `
+                <td><strong>${item.month_name}/${item.year}</strong></td>
+                <td>R$ ${item.amount.toFixed(2)}</td>
+                <td>${statusBadge}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" 
+                            onclick="viewMonth(${item.month}, ${item.year})">
+                        <i class="fas fa-eye"></i> Ver
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    } catch (error) {
+        console.error('Erro ao carregar timeline:', error);
+    }
+}
+
+async function loadInvoices() {
+    try {
+        const response = await fetch(`/invoices/api/invoices?month=${currentViewingMonth}&year=${currentViewingYear}`);
+        const invoices = await response.json();
+        
+        const container = document.getElementById('invoicesList');
+        const noInvoices = document.getElementById('noInvoices');
+        
+        container.innerHTML = '';
+        
+        if (invoices.length === 0) {
+            noInvoices.style.display = 'block';
+            return;
+        }
+        
+        noInvoices.style.display = 'none';
+        
+        invoices.forEach(item => {
+            const invoice = item.invoice;
+            const card = item.card;
+            const statusLabel = invoice ? invoice.status_label : 'FUTURA';
+            const isPaid = invoice && invoice.status === 'paid';
+            
+            let statusClass = 'secondary';
+            if (statusLabel === 'PAGA') statusClass = 'success';
+            else if (statusLabel === 'ATUAL') statusClass = 'primary';
+            else if (statusLabel === 'ATRASADA') statusClass = 'danger';
+            
+            const cardHtml = `
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-0">
+                                    <i class="fas fa-credit-card"></i> ${card.name}
+                                    <small class="text-muted">**** ${card.last_digits}</small>
+                                </h5>
+                            </div>
+                            <span class="badge bg-${statusClass}">${statusLabel}</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-6">
+                                    <p class="mb-1"><strong>Valor Total:</strong></p>
+                                    <h3 class="text-primary">R$ ${item.amount.toFixed(2)}</h3>
+                                </div>
+                                <div class="col-6">
+                                    <p class="mb-1"><strong>Vencimento:</strong></p>
+                                    <p>${invoice ? new Date(invoice.due_date).toLocaleDateString('pt-BR') : 'N/A'}</p>
+                                    <p class="mb-1"><strong>Parcelas:</strong> ${item.installments_count}</p>
+                                </div>
+                            </div>
+                            ${invoice && isPaid ? `
+                                <div class="alert alert-success mt-2 mb-2">
+                                    <i class="fas fa-check-circle"></i> Pago em ${new Date(invoice.paid_date).toLocaleDateString('pt-BR')}
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="card-footer">
+                            <div class="btn-group w-100" role="group">
+                                <button class="btn btn-outline-primary" 
+                                        onclick='showInvoiceDetails(${JSON.stringify(item)})'>
+                                    <i class="fas fa-list"></i> Detalhes
+                                </button>
+                                ${invoice && !isPaid && statusLabel !== 'FUTURA' ? `
+                                    <button class="btn btn-success" onclick="payInvoice(${invoice.id})">
+                                        <i class="fas fa-check"></i> Pagar
+                                    </button>
+                                ` : ''}
+                                ${invoice && isPaid ? `
+                                    <button class="btn btn-warning" onclick="unpayInvoice(${invoice.id})">
+                                        <i class="fas fa-times"></i> Despagar
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            container.innerHTML += cardHtml;
+        });
+    } catch (error) {
+        console.error('Erro ao carregar faturas:', error);
+    }
+}
+
+function showInvoiceDetails(item) {
+    currentInvoiceDetails = item;
+    const tbody = document.getElementById('installmentsTableBody');
+    tbody.innerHTML = '';
+    
+    if (!item.installments || item.installments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center">Nenhuma parcela encontrada</td></tr>';
+    } else {
+        item.installments.forEach(inst => {
+            const row = `
+                <tr>
+                    <td>${inst.transaction ? inst.transaction.description : 'N/A'}</td>
+                    <td>${inst.installment_number}/${inst.total_installments}</td>
+                    <td>R$ ${inst.amount.toFixed(2)}</td>
+                    <td>${new Date(inst.due_date).toLocaleDateString('pt-BR')}</td>
+                    <td>${inst.paid ? '<span class="badge bg-success">Paga</span>' : '<span class="badge bg-warning">Aberta</span>'}</td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+    
+    new bootstrap.Modal(document.getElementById('invoiceDetailsModal')).show();
+}
+
+async function payInvoice(invoiceId) {
+    if (!confirm('Deseja marcar esta fatura como paga?')) return;
+    
+    try {
+        const response = await fetch(`/invoices/api/invoices/${invoiceId}/pay`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showAlert('Fatura marcada como paga com sucesso!', 'success');
+            await loadInvoices();
+            await loadTimeline();
+        }
+    } catch (error) {
+        console.error('Erro ao pagar fatura:', error);
+        showAlert('Erro ao pagar fatura', 'danger');
+    }
+}
+
+async function unpayInvoice(invoiceId) {
+    if (!confirm('Deseja desmarcar esta fatura como paga?')) return;
+    
+    try {
+        const response = await fetch(`/invoices/api/invoices/${invoiceId}/unpay`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showAlert('Fatura desmarcada como paga!', 'warning');
+            await loadInvoices();
+            await loadTimeline();
+        }
+    } catch (error) {
+        console.error('Erro ao despagar fatura:', error);
+        showAlert('Erro ao despagar fatura', 'danger');
+    }
+}
+
+function viewMonth(month, year) {
+    currentViewingMonth = month;
+    currentViewingYear = year;
+    updateMonthDisplay();
+    
+    // Atualizar sessão
+    fetch('/invoices/api/set-viewing-date', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({month, year})
+    });
+    
+    loadInvoices();
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.container').firstChild);
+    
+    setTimeout(() => alertDiv.remove(), 3000);
+}
+
+// Carregar dados ao iniciar
+document.addEventListener('DOMContentLoaded', () => {
+    updateMonthDisplay();
+    loadTimeline();
+    loadInvoices();
+});
+</script>
+{% endblock %}
