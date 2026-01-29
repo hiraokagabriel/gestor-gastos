@@ -14,6 +14,19 @@
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     
+    <style>
+        .notification-badge {
+            position: relative;
+        }
+        .notification-badge .badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            font-size: 0.65rem;
+            padding: 0.25em 0.5em;
+        }
+    </style>
+    
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -51,6 +64,17 @@
                     <li class="nav-item">
                         <a class="nav-link" href="/accounts">
                             <i class="fas fa-money-bill-wave"></i> Contas
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/calendar">
+                            <i class="fas fa-calendar-alt"></i> Calendário
+                        </a>
+                    </li>
+                    <li class="nav-item notification-badge">
+                        <a class="nav-link" href="/notifications">
+                            <i class="fas fa-bell"></i> Notificações
+                            <span id="notificationBadge" class="badge bg-danger" style="display: none;">0</span>
                         </a>
                     </li>
                 </ul>
@@ -129,7 +153,30 @@
                 year: 'numeric' 
             });
             document.getElementById('currentDateDisplay').textContent = dateStr;
+            
+            // Carregar contador de notificações
+            updateNotificationBadge();
         });
+        
+        async function updateNotificationBadge() {
+            try {
+                const response = await fetch('/notifications/api/notifications/count');
+                const data = await response.json();
+                const badge = document.getElementById('notificationBadge');
+                
+                if (data.count > 0) {
+                    badge.textContent = data.count > 99 ? '99+' : data.count;
+                    badge.style.display = 'inline';
+                } else {
+                    badge.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Erro ao atualizar badge de notificações:', error);
+            }
+        }
+        
+        // Atualizar badge a cada 2 minutos
+        setInterval(updateNotificationBadge, 120000);
     </script>
     
     {% block extra_js %}{% endblock %}
