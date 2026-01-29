@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}Contas - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="fas fa-money-bill-wave"></i> Receitas e Despesas</h2>
+    </div>
+    <div class="col text-end">
+        <button class="btn btn-success me-2" onclick="openAccountModal('income')">
+            <i class="fas fa-plus"></i> Nova Receita
+        </button>
+        <button class="btn btn-danger" onclick="openAccountModal('expense')">
+            <i class="fas fa-minus"></i> Nova Despesa
+        </button>
+    </div>
+</div>
+
+<!-- Resumo -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-white bg-success">
+            <div class="card-body text-center">
+                <h6 class="card-title">Receitas do Mês</h6>
+                <h3 id="totalIncome">R$ 0,00</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-danger">
+            <div class="card-body text-center">
+                <h6 class="card-title">Despesas do Mês</h6>
+                <h3 id="totalExpenses">R$ 0,00</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-primary">
+            <div class="card-body text-center">
+                <h6 class="card-title">Saldo do Mês</h6>
+                <h3 id="balance">R$ 0,00</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filtros -->
+<div class="row mb-4">
+    <div class="col">
+        <div class="btn-group" role="group">
+            <button type="button" class="btn btn-outline-primary active" onclick="filterAccounts('all')">Todos</button>
+            <button type="button" class="btn btn-outline-success" onclick="filterAccounts('income')">Receitas</button>
+            <button type="button" class="btn btn-outline-danger" onclick="filterAccounts('expense')">Despesas</button>
+        </div>
+    </div>
+</div>
+
+<div id="accountsList">
+    <!-- Contas serão carregadas aqui -->
+</div>
+
+<!-- Modal para Adicionar/Editar Conta -->
+<div class="modal fade" id="accountModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="accountModalTitle">Nova Conta</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="accountForm">
+                    <input type="hidden" id="accountId">
+                    <input type="hidden" id="accountType">
+                    <div class="mb-3">
+                        <label for="accountDescription" class="form-label">Descrição *</label>
+                        <input type="text" class="form-control" id="accountDescription" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="accountAmount" class="form-label">Valor (R$) *</label>
+                            <input type="number" class="form-control" id="accountAmount" step="0.01" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="accountDate" class="form-label">Data *</label>
+                            <input type="date" class="form-control" id="accountDate" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="accountCategory" class="form-label">Categoria</label>
+                        <input type="text" class="form-control" id="accountCategory" list="accountCategories">
+                        <datalist id="accountCategories">
+                            <option value="Salário">
+                            <option value="Freelance">
+                            <option value="Alimentação">
+                            <option value="Transporte">
+                            <option value="Moradia">
+                            <option value="Lazer">
+                            <option value="Saúde">
+                            <option value="Educação">
+                            <option value="Outros">
+                        </datalist>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="accountRecurring">
+                        <label class="form-check-label" for="accountRecurring">
+                            Recorrente (mensal)
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveAccount()">Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentFilter = 'all';
+
+async function loadAccounts(filter = null) {
+    if (filter) currentFilter = filter;
+    
+    try {
+        const url = currentFilter === 'all' ? '/accounts/api/accounts' : `/accounts/api/accounts?type=${currentFilter}`;
+        const response = await fetch(url);
+        const accounts = await response.json();
+        
+        // Calcular totais
+        let totalIncome = 0;
+        let totalExpenses = 0;
+        
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        
+        accounts.forEach(acc => {
+            const accDate = new Date(acc.date);
+            if (accDate >= firstDay && accDate <= today) {
+                if (acc.type === 'income') {
+                    totalIncome += acc.amount;
+                } else {
+                    totalExpenses += acc.amount;
+                }
+            }
+        });
+        
+        document.getElementById('totalIncome').textContent = `R$ ${totalIncome.toFixed(2)}`;
+        document.getElementById('totalExpenses').textContent = `R$ ${totalExpenses.toFixed(2)}`;
+        document.getElementById('balance').textContent = `R$ ${(totalIncome - totalExpenses).toFixed(2)}`;
+        
+        const accountsList = document.getElementById('accountsList');
+        
+        if (accounts.length === 0) {
+            accountsList.innerHTML = '<div class="alert alert-info text-center"><i class="fas fa-info-circle"></i> Nenhuma conta encontrada</div>';
+            return;
+        }
+        
+        accountsList.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Descrição</th>
+                            <th>Categoria</th>
+                            <th>Tipo</th>
+                            <th>Valor</th>
+                            <th>Recorrente</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${accounts.map(acc => `
+                            <tr>
+                                <td>${new Date(acc.date).toLocaleDateString('pt-BR')}</td>
+                                <td>${acc.description}</td>
+                                <td><span class="badge bg-info">${acc.category || 'Sem categoria'}</span></td>
+                                <td><span class="badge bg-${acc.type === 'income' ? 'success' : 'danger'}">${acc.type === 'income' ? 'Receita' : 'Despesa'}</span></td>
+                                <td class="fw-bold ${acc.type === 'income' ? 'text-success' : 'text-danger'}">${acc.type === 'income' ? '+' : '-'} R$ ${acc.amount.toFixed(2)}</td>
+                                <td>${acc.recurring ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-muted"></i>'}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" onclick="editAccount(${acc.id})" title="Editar">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteAccount(${acc.id})" title="Excluir">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+    } catch (error) {
+        console.error('Erro ao carregar contas:', error);
+    }
+}
+
+function filterAccounts(filter) {
+    document.querySelectorAll('.btn-group button').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    loadAccounts(filter);
+}
+
+function openAccountModal(type) {
+    document.getElementById('accountForm').reset();
+    document.getElementById('accountId').value = '';
+    document.getElementById('accountType').value = type;
+    document.getElementById('accountModalTitle').textContent = type === 'income' ? 'Nova Receita' : 'Nova Despesa';
+    document.getElementById('accountDate').valueAsDate = new Date();
+    new bootstrap.Modal(document.getElementById('accountModal')).show();
+}
+
+async function editAccount(accountId) {
+    try {
+        const response = await fetch(`/accounts/api/accounts/${accountId}`);
+        const account = await response.json();
+        
+        document.getElementById('accountId').value = account.id;
+        document.getElementById('accountType').value = account.type;
+        document.getElementById('accountDescription').value = account.description;
+        document.getElementById('accountAmount').value = account.amount;
+        document.getElementById('accountDate').value = account.date;
+        document.getElementById('accountCategory').value = account.category || '';
+        document.getElementById('accountRecurring').checked = account.recurring;
+        
+        document.getElementById('accountModalTitle').textContent = account.type === 'income' ? 'Editar Receita' : 'Editar Despesa';
+        new bootstrap.Modal(document.getElementById('accountModal')).show();
+    } catch (error) {
+        console.error('Erro ao carregar conta:', error);
+    }
+}
+
+async function saveAccount() {
+    const accountId = document.getElementById('accountId').value;
+    const data = {
+        description: document.getElementById('accountDescription').value,
+        amount: document.getElementById('accountAmount').value,
+        type: document.getElementById('accountType').value,
+        date: document.getElementById('accountDate').value,
+        category: document.getElementById('accountCategory').value,
+        recurring: document.getElementById('accountRecurring').checked
+    };
+    
+    try {
+        const url = accountId ? `/accounts/api/accounts/${accountId}` : '/accounts/api/accounts';
+        const method = accountId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('accountModal')).hide();
+            loadAccounts();
+        }
+    } catch (error) {
+        console.error('Erro ao salvar conta:', error);
+    }
+}
+
+async function deleteAccount(accountId) {
+    if (!confirm('Tem certeza que deseja excluir esta conta?')) return;
+    
+    try {
+        const response = await fetch(`/accounts/api/accounts/${accountId}`, { method: 'DELETE' });
+        if (response.ok) loadAccounts();
+    } catch (error) {
+        console.error('Erro ao deletar conta:', error);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => loadAccounts());
+</script>
+{% endblock %}

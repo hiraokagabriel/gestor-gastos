@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="fas fa-chart-line"></i> Dashboard Financeiro</h2>
+        <p class="text-muted">Visão consolidada das suas finanças</p>
+    </div>
+</div>
+
+<!-- Cards de Resumo -->
+<div class="row mb-4" id="summaryCards">
+    <!-- Cards serão carregados aqui -->
+</div>
+
+<!-- Gráficos -->
+<div class="row mb-4">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Tendência Mensal (Últimos 6 Meses)</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="trendChart" height="80"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-pie"></i> Gastos por Categoria</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="categoryChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabela de Cartões -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="fas fa-credit-card"></i> Resumo de Cartões</h5>
+            </div>
+            <div class="card-body">
+                <div id="cardsTable"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Boletos Pendentes -->
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-warning">
+                <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Boletos Pendentes</h5>
+            </div>
+            <div class="card-body">
+                <div id="pendingBillsTable"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let trendChart = null;
+let categoryChart = null;
+
+async function loadDashboard() {
+    await loadSummary();
+    await loadTrendChart();
+    await loadCategoryChart();
+    await loadCardsTable();
+    await loadPendingBills();
+}
+
+async function loadSummary() {
+    try {
+        const response = await fetch('/dashboard/api/summary');
+        const data = await response.json();
+        
+        const summaryCards = document.getElementById('summaryCards');
+        summaryCards.innerHTML = `
+            <div class="col-md-3">
+                <div class="card text-white bg-primary shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="fas fa-credit-card"></i> Limite Total</h6>
+                        <h3 class="mb-0">R$ ${data.cards.total_limit.toFixed(2)}</h3>
+                        <small>${data.cards.usage_percentage.toFixed(1)}% utilizado</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-success shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="fas fa-check-circle"></i> Limite Disponível</h6>
+                        <h3 class="mb-0">R$ ${data.cards.total_available.toFixed(2)}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-warning shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="fas fa-exclamation-circle"></i> Boletos Pendentes</h6>
+                        <h3 class="mb-0">${data.bills.pending_count}</h3>
+                        <small>R$ ${data.bills.pending_amount.toFixed(2)}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-${data.monthly.balance >= 0 ? 'success' : 'danger'} shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="fas fa-wallet"></i> Saldo do Mês</h6>
+                        <h3 class="mb-0">R$ ${data.monthly.balance.toFixed(2)}</h3>
+                        <small>Receitas: R$ ${data.monthly.income.toFixed(2)}</small>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Erro ao carregar resumo:', error);
+    }
+}
+
+async function loadTrendChart() {
+    try {
+        const response = await fetch('/dashboard/api/monthly-trend');
+        const data = await response.json();
+        
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        
+        if (trendChart) trendChart.destroy();
+        
+        trendChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.map(d => {
+                    const [year, month] = d.month.split('-');
+                    const date = new Date(year, month - 1);
+                    return date.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' });
+                }),
+                datasets: [
+                    {
+                        label: 'Receitas',
+                        data: data.map(d => d.income),
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Despesas',
+                        data: data.map(d => d.expenses),
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Saldo',
+                        data: data.map(d => d.balance),
+                        borderColor: 'rgb(54, 162, 235)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return 'R$ ' + value.toFixed(0);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao carregar gráfico de tendência:', error);
+    }
+}
+
+async function loadCategoryChart() {
+    try {
+        const response = await fetch('/dashboard/api/expenses-by-category');
+        const data = await response.json();
+        
+        if (data.length === 0) {
+            document.getElementById('categoryChart').parentElement.innerHTML = '<p class="text-center text-muted">Sem dados para exibir</p>';
+            return;
+        }
+        
+        const ctx = document.getElementById('categoryChart').getContext('2d');
+        
+        if (categoryChart) categoryChart.destroy();
+        
+        const colors = [
+            'rgb(255, 99, 132)',
+            'rgb(54, 162, 235)',
+            'rgb(255, 205, 86)',
+            'rgb(75, 192, 192)',
+            'rgb(153, 102, 255)',
+            'rgb(255, 159, 64)'
+        ];
+        
+        categoryChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.category),
+                datasets: [{
+                    data: data.map(d => d.amount),
+                    backgroundColor: colors,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao carregar gráfico de categorias:', error);
+    }
+}
+
+async function loadCardsTable() {
+    try {
+        const response = await fetch('/cards/api/cards');
+        const cards = await response.json();
+        
+        const cardsTable = document.getElementById('cardsTable');
+        
+        if (cards.length === 0) {
+            cardsTable.innerHTML = '<p class="text-center text-muted">Nenhum cartão cadastrado</p>';
+            return;
+        }
+        
+        cardsTable.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Cartão</th>
+                            <th>Limite Total</th>
+                            <th>Utilizado</th>
+                            <th>Disponível</th>
+                            <th>Fatura Atual</th>
+                            <th>% Uso</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${cards.map(card => {
+                            const usagePercent = (card.total_used / card.limit_total * 100).toFixed(1);
+                            return `
+                                <tr>
+                                    <td><strong>${card.name}</strong><br><small class="text-muted">${card.flag} *${card.last_digits}</small></td>
+                                    <td>R$ ${card.limit_total.toFixed(2)}</td>
+                                    <td class="text-danger">R$ ${card.total_used.toFixed(2)}</td>
+                                    <td class="text-success">R$ ${card.limit_available.toFixed(2)}</td>
+                                    <td class="fw-bold">R$ ${card.current_bill.toFixed(2)}</td>
+                                    <td>
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar ${usagePercent > 80 ? 'bg-danger' : usagePercent > 50 ? 'bg-warning' : 'bg-success'}" 
+                                                 style="width: ${usagePercent}%">
+                                                ${usagePercent}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Erro ao carregar tabela de cartões:', error);
+    }
+}
+
+async function loadPendingBills() {
+    try {
+        const response = await fetch('/bills/api/bills?status=pending');
+        const bills = await response.json();
+        
+        const pendingBillsTable = document.getElementById('pendingBillsTable');
+        
+        if (bills.length === 0) {
+            pendingBillsTable.innerHTML = '<p class="text-center text-success"><i class="fas fa-check-circle"></i> Nenhum boleto pendente</p>';
+            return;
+        }
+        
+        // Ordenar por data de vencimento
+        bills.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+        
+        pendingBillsTable.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Descrição</th>
+                            <th>Categoria</th>
+                            <th>Valor</th>
+                            <th>Vencimento</th>
+                            <th>Dias</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${bills.map(bill => {
+                            const dueDate = new Date(bill.due_date);
+                            const today = new Date();
+                            const diffTime = dueDate - today;
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            
+                            let daysText = '';
+                            let rowClass = '';
+                            
+                            if (diffDays < 0) {
+                                daysText = `<span class="badge bg-danger">Vencido há ${Math.abs(diffDays)} dias</span>`;
+                                rowClass = 'table-danger';
+                            } else if (diffDays === 0) {
+                                daysText = '<span class="badge bg-warning">Vence hoje</span>';
+                                rowClass = 'table-warning';
+                            } else if (diffDays <= 3) {
+                                daysText = `<span class="badge bg-warning">Vence em ${diffDays} dias</span>`;
+                                rowClass = 'table-warning';
+                            } else {
+                                daysText = `<span class="badge bg-info">Vence em ${diffDays} dias</span>`;
+                            }
+                            
+                            return `
+                                <tr class="${rowClass}">
+                                    <td>${bill.description}</td>
+                                    <td><span class="badge bg-secondary">${bill.category || 'Sem categoria'}</span></td>
+                                    <td class="fw-bold">R$ ${bill.amount.toFixed(2)}</td>
+                                    <td>${dueDate.toLocaleDateString('pt-BR')}</td>
+                                    <td>${daysText}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Erro ao carregar boletos pendentes:', error);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadDashboard);
+</script>
+{% endblock %}

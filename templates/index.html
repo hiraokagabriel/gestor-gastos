@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Início - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 text-center mb-5">
+        <h1 class="display-4">
+            <i class="fas fa-wallet text-primary"></i>
+            Bem-vindo ao Gestor de Gastos
+        </h1>
+        <p class="lead">Controle suas finanças de forma simples e eficiente</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6 col-lg-3">
+        <div class="card text-center h-100 shadow-sm hover-card">
+            <div class="card-body">
+                <i class="fas fa-chart-line fa-3x text-primary mb-3"></i>
+                <h5 class="card-title">Dashboard</h5>
+                <p class="card-text">Visualize todos os seus gastos consolidados</p>
+                <a href="/dashboard" class="btn btn-primary">Acessar</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="card text-center h-100 shadow-sm hover-card">
+            <div class="card-body">
+                <i class="fas fa-credit-card fa-3x text-success mb-3"></i>
+                <h5 class="card-title">Cartões</h5>
+                <p class="card-text">Gerencie seus cartões de crédito e compras</p>
+                <a href="/cards" class="btn btn-success">Acessar</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="card text-center h-100 shadow-sm hover-card">
+            <div class="card-body">
+                <i class="fas fa-file-invoice fa-3x text-warning mb-3"></i>
+                <h5 class="card-title">Boletos</h5>
+                <p class="card-text">Controle seus boletos e vencimentos</p>
+                <a href="/bills" class="btn btn-warning">Acessar</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="card text-center h-100 shadow-sm hover-card">
+            <div class="card-body">
+                <i class="fas fa-money-bill-wave fa-3x text-info mb-3"></i>
+                <h5 class="card-title">Contas</h5>
+                <p class="card-text">Registre receitas e despesas gerais</p>
+                <a href="/accounts" class="btn btn-info">Acessar</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-5">
+    <div class="col-lg-8 mx-auto">
+        <div class="card shadow">
+            <div class="card-body">
+                <h4 class="card-title mb-3">
+                    <i class="fas fa-lightbulb text-warning"></i>
+                    Funcionalidades Principais
+                </h4>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Cadastro e controle de múltiplos cartões de crédito
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Gerenciamento de compras parceladas
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Controle de limite disponível e fatura atual
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Acompanhamento de boletos com alertas de vencimento
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Registro de receitas e despesas gerais
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success me-2"></i>
+                        Dashboard com visão consolidada e gráficos
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
