@@ -268,3 +268,34 @@ class Category(db.Model):
             'type': self.type,
             'color': self.color
         }
+
+class Notification(db.Model):
+    """Modelo para Notificações"""
+    __tablename__ = 'notifications'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(50), nullable=False)  # invoice_due, bill_due, limit_alert, etc
+    title = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    priority = db.Column(db.String(20), default='normal')  # low, normal, high, urgent
+    read = db.Column(db.Boolean, default=False)
+    link = db.Column(db.String(200))  # Link para a página relevante
+    reference_id = db.Column(db.Integer)  # ID do item relacionado
+    reference_type = db.Column(db.String(50))  # invoice, bill, card
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    read_at = db.Column(db.DateTime)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'title': self.title,
+            'message': self.message,
+            'priority': self.priority,
+            'read': self.read,
+            'link': self.link,
+            'reference_id': self.reference_id,
+            'reference_type': self.reference_type,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'read_at': self.read_at.strftime('%Y-%m-%d %H:%M:%S') if self.read_at else None
+        }
