@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, render_template, session
-from models import CreditCard, Invoice, Transaction, Installment
+from models import CreditCard, Invoice, Transaction, Installment, Bill, Account
 from database import db
 from datetime import datetime
 from calendar import monthrange
@@ -67,6 +67,106 @@ def reset_viewing_date():
         })
     except Exception as e:
         print(f"Erro em reset_viewing_date: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@invoices_bp.route('/api/projected-balance', methods=['GET'])
+def get_projected_balance():
+    """Calcula saldo projetado se pagar todas as faturas até o mês anterior"""
+    try:
+        month = request.args.get('month', type=int)
+        year = request.args.get('year', type=int)
+        
+        if not month or not year:
+            today = datetime.now()
+            month = session.get('viewing_month', today.month)
+            year = session.get('viewing_year', today.year)
+        
+        today = datetime.now()
+        current_month = today.month
+        current_year = today.year
+        
+        # Saldo atual (exemplo: pode ser obtido de uma configuração ou conta principal)
+        # Por enquanto, vamos calcular baseado em receitas - despesas
+        current_balance = 0.0
+        
+        # Calcular receitas até agora
+        incomes = Account.query.filter(
+            Account.type == 'income',
+            Account.date <= datetime.now()
+        ).all()
+        current_balance += sum(acc.amount for acc in incomes)
+        
+        # Subtrair despesas já pagas
+        expenses = Account.query.filter(
+            Account.type == 'expense',
+            Account.date <= datetime.now()
+        ).all()
+        current_balance -= sum(acc.amount for acc in expenses)
+        
+        # Subtrair faturas já pagas
+        paid_invoices = Invoice.query.filter(
+            Invoice.status == 'paid'
+        ).all()
+        current_balance -= sum(inv.amount for inv in paid_invoices)
+        
+        # Subtrair boletos já pagos
+        paid_bills = Bill.query.filter(
+            Bill.paid == True
+        ).all()
+        current_balance -= sum(bill.amount for bill in paid_bills)
+        
+        # Calcular total de faturas a pagar até o mês anterior ao visualizado
+        total_to_pay = 0.0
+        
+        # Determinar mês anterior ao visualizado
+        prev_month = month - 1 if month > 1 else 12
+        prev_year = year if month > 1 else year - 1
+        
+        # Percorrer todos os meses desde o atual até o anterior ao visualizado
+        temp_month = current_month
+        temp_year = current_year
+        
+        while (temp_year < prev_year) or (temp_year == prev_year and temp_month <= prev_month):
+            # Faturas não pagas deste mês
+            invoices = Invoice.query.filter_by(
+                month=temp_month,
+                year=temp_year,
+                status='open'
+            ).all()
+            total_to_pay += sum(inv.amount for inv in invoices)
+            
+            # Boletos não pagos deste mês
+            first_day = datetime(temp_year, temp_month, 1)
+            last_day = datetime(temp_year, temp_month, monthrange(temp_year, temp_month)[1])
+            
+            bills = Bill.query.filter(
+                Bill.paid == False,
+                Bill.due_date >= first_day,
+                Bill.due_date <= last_day
+            ).all()
+            total_to_pay += sum(bill.amount for bill in bills)
+            
+            # Avançar para o próximo mês
+            temp_month += 1
+            if temp_month > 12:
+                temp_month = 1
+                temp_year += 1
+        
+        projected_balance = current_balance - total_to_pay
+        
+        return jsonify({
+            'current_balance': round(current_balance, 2),
+            'total_to_pay': round(total_to_pay, 2),
+            'projected_balance': round(projected_balance, 2),
+            'viewing_month': month,
+            'viewing_year': year,
+            'current_month': current_month,
+            'current_year': current_year
+        })
+        
+    except Exception as e:
+        print(f"Erro em get_projected_balance: {str(e)}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
