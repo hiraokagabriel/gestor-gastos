@@ -8,6 +8,7 @@ def register_routes(app):
     from .dashboard import dashboard_bp
     from .invoices import invoices_bp
     from .notifications import notifications_bp
+    from .calendar import calendar_bp
     
     app.register_blueprint(cards_bp)
     app.register_blueprint(bills_bp)
@@ -15,3 +16,4 @@ def register_routes(app):
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(invoices_bp)
     app.register_blueprint(notifications_bp)
+    app.register_blueprint(calendar_bp)
