@@ -15,6 +15,29 @@
     <!-- Cards serão carregados aqui -->
 </div>
 
+<!-- NOVO: Previsor de Gastos -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-primary">
+            <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <h5 class="mb-0">
+                    <i class="fas fa-crystal-ball"></i> Previsor de Gastos do Mês
+                    <span id="predictionMonthLabel" class="badge bg-light text-dark ms-2"></span>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="predictionContent">
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Gráficos -->
 <div class="row mb-4">
     <div class="col-lg-8">
@@ -73,12 +96,160 @@
 let trendChart = null;
 let categoryChart = null;
 
+const monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
 async function loadDashboard() {
     await loadSummary();
+    await loadPrediction();
     await loadTrendChart();
     await loadCategoryChart();
     await loadCardsTable();
     await loadPendingBills();
+}
+
+async function loadPrediction() {
+    try {
+        const response = await fetch('/dashboard/api/prediction');
+        const data = await response.json();
+        
+        document.getElementById('predictionMonthLabel').textContent = 
+            `${monthNames[data.viewing_month]}/${data.viewing_year}`;
+        
+        const isPositive = data.balance.predicted >= 0;
+        const comparisonIcon = data.comparison.difference > 0 ? '▲' : 
+                               data.comparison.difference < 0 ? '▼' : '=';
+        const comparisonColor = data.comparison.difference > 0 ? 'danger' : 
+                                data.comparison.difference < 0 ? 'success' : 'secondary';
+        
+        const content = `
+            <div class="row">
+                <!-- Card Principal -->
+                <div class="col-md-4">
+                    <div class="text-center p-4 bg-light rounded">
+                        <h6 class="text-muted mb-2">TOTAL PREVISTO</h6>
+                        <h2 class="display-4 fw-bold text-primary mb-2">R$ ${data.total_predicted.toFixed(2)}</h2>
+                        <p class="mb-0">
+                            <span class="badge bg-${comparisonColor}">
+                                ${comparisonIcon} ${Math.abs(data.comparison.difference_percent).toFixed(1)}% vs mês anterior
+                            </span>
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Breakdown -->
+                <div class="col-md-8">
+                    <div class="row g-3">
+                        <!-- Faturas -->
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-credit-card fa-2x text-danger mb-2"></i>
+                                    <h6 class="text-muted">Faturas</h6>
+                                    <h4 class="fw-bold">R$ ${data.breakdown.card_invoices.total.toFixed(2)}</h4>
+                                    <small class="text-muted">${data.breakdown.card_invoices.items.length} cartões</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Boletos -->
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-file-invoice fa-2x text-warning mb-2"></i>
+                                    <h6 class="text-muted">Boletos</h6>
+                                    <h4 class="fw-bold">R$ ${data.breakdown.bills.total.toFixed(2)}</h4>
+                                    <small class="text-muted">${data.breakdown.bills.count} pendentes</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Recorrentes -->
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-sync-alt fa-2x text-info mb-2"></i>
+                                    <h6 class="text-muted">Recorrentes</h6>
+                                    <h4 class="fw-bold">R$ ${data.breakdown.recurring.total.toFixed(2)}</h4>
+                                    <small class="text-muted">${data.breakdown.recurring.count} contas</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Barra de Progresso -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <h6>Balanço Previsto</h6>
+                    <div class="row align-items-center">
+                        <div class="col">
+                            <div class="progress" style="height: 30px;">
+                                <div class="progress-bar ${isPositive ? 'bg-success' : 'bg-danger'}" 
+                                     style="width: ${Math.abs(data.balance.predicted / (data.total_predicted || 1)) * 100}%">
+                                    R$ ${data.balance.predicted.toFixed(2)}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <span class="badge ${isPositive ? 'bg-success' : 'bg-danger'} fs-6">
+                                ${isPositive ? 'Sobra' : 'Falta'}
+                            </span>
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        Receitas previstas: R$ ${data.income.total.toFixed(2)} | 
+                        Despesas previstas: R$ ${data.total_predicted.toFixed(2)}
+                    </small>
+                </div>
+            </div>
+            
+            <!-- Detalhes -->
+            <div class="row mt-3">
+                <div class="col-12">
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#predictionDetails">
+                        <i class="fas fa-info-circle"></i> Ver Detalhes
+                    </button>
+                    <div class="collapse mt-3" id="predictionDetails">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <h6 class="fw-bold">Faturas por Cartão</h6>
+                                <ul class="list-unstyled">
+                                    ${data.breakdown.card_invoices.items.map(item => 
+                                        `<li><i class="fas fa-credit-card text-danger"></i> ${item.card_name}: R$ ${item.amount.toFixed(2)}</li>`
+                                    ).join('')}
+                                </ul>
+                            </div>
+                            <div class="col-md-4">
+                                <h6 class="fw-bold">Boletos Pendentes</h6>
+                                <ul class="list-unstyled">
+                                    ${data.breakdown.bills.items.slice(0, 5).map(item => 
+                                        `<li><i class="fas fa-file-invoice text-warning"></i> ${item.description}: R$ ${item.amount.toFixed(2)} <small>(${item.due_date})</small></li>`
+                                    ).join('')}
+                                    ${data.breakdown.bills.items.length > 5 ? `<li class="text-muted"><small>+ ${data.breakdown.bills.items.length - 5} mais...</small></li>` : ''}
+                                </ul>
+                            </div>
+                            <div class="col-md-4">
+                                <h6 class="fw-bold">Despesas Recorrentes</h6>
+                                <ul class="list-unstyled">
+                                    ${data.breakdown.recurring.items.map(item => 
+                                        `<li><i class="fas fa-sync-alt text-info"></i> ${item.description}: R$ ${item.amount.toFixed(2)}</li>`
+                                    ).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('predictionContent').innerHTML = content;
+    } catch (error) {
+        console.error('Erro ao carregar previsão:', error);
+        document.getElementById('predictionContent').innerHTML = 
+            '<div class="alert alert-danger">Erro ao carregar previsão de gastos.</div>';
+    }
 }
 
 async function loadSummary() {
