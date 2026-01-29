@@ -39,6 +39,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="/invoices">
+                            <i class="fas fa-file-invoice-dollar"></i> Faturas
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="/bills">
                             <i class="fas fa-file-invoice"></i> Boletos
                         </a>
@@ -53,6 +58,50 @@
         </div>
     </nav>
 
+    <!-- Barra de Navegação Temporal -->
+    <div class="bg-light border-bottom py-2">
+        <div class="container-fluid">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="text-muted">
+                            <i class="fas fa-calendar-day"></i> <strong>Hoje:</strong> 
+                            <span id="currentDateDisplay"></span>
+                        </span>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center justify-content-end gap-2">
+                        <span class="text-muted">
+                            <i class="fas fa-eye"></i> <strong>Visualizando:</strong>
+                        </span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="prevMonth()">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <span class="badge bg-primary" id="temporalMonthDisplay" style="min-width: 120px; font-size: 0.9rem;">
+                            Carregando...
+                        </span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="nextMonth()">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="goToToday()">
+                            <i class="fas fa-home"></i> Hoje
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Alerta de Modo Simulação -->
+            <div id="temporalAlert" class="alert alert-warning alert-sm mt-2 mb-0" style="display: none; padding: 0.5rem;">
+                <i class="fas fa-exclamation-triangle"></i> 
+                <strong>Modo Simulação Ativo</strong> - Você está visualizando dados de outro período.
+                <button class="btn btn-sm btn-warning ms-2" onclick="goToToday()">
+                    Voltar para Hoje
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Content -->
     <main class="container my-4">
         {% block content %}{% endblock %}
@@ -64,8 +113,24 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     
+    <!-- Navegação Temporal -->
+    <script src="{{ url_for('static', filename='js/temporal-nav.js') }}"></script>
+    
     <!-- Custom JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    
+    <!-- Display Current Date -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('pt-BR', { 
+                day: '2-digit', 
+                month: 'long', 
+                year: 'numeric' 
+            });
+            document.getElementById('currentDateDisplay').textContent = dateStr;
+        });
+    </script>
     
     {% block extra_js %}{% endblock %}
 </body>
