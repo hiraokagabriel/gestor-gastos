@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+
+{% block title %}Calendário Financeiro - Gestor de Gastos{% endblock %}
+
+{% block extra_css %}
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+<style>
+.fc-event {
+    cursor: pointer;
+}
+.legend-item {
+    display: inline-block;
+    margin-right: 15px;
+}
+.legend-color {
+    display: inline-block;
+    width: 15px;
+    height: 15px;
+    margin-right: 5px;
+    border-radius: 3px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="fas fa-calendar-alt"></i> Calendário Financeiro</h2>
+            <p class="text-muted">Visualize vencimentos e compromissos financeiros</p>
+        </div>
+    </div>
+
+    <!-- Legenda -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h6>Legenda:</h6>
+            <div class="legend-item">
+                <span class="legend-color" style="background-color: #dc3545;"></span>
+                <span>Faturas de Cartões</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background-color: #ffc107;"></span>
+                <span>Boletos</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background-color: #0dcaf0;"></span>
+                <span>Parcelas</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calendário -->
+    <div class="card">
+        <div class="card-body">
+            <div id='calendar'></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Detalhes do Evento -->
+<div class="modal fade" id="eventModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="eventModalTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="eventModalBody">
+                <!-- Preenchido via JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <a id="eventModalLink" href="#" class="btn btn-primary">Ver Detalhes</a>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales/pt-br.global.min.js'></script>
+<script>
+let calendar;
+
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarEl = document.getElementById('calendar');
+    
+    calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'pt-br',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+        },
+        buttonText: {
+            today: 'Hoje',
+            month: 'Mês',
+            week: 'Semana',
+            day: 'Dia',
+            list: 'Lista'
+        },
+        views: {
+            timeGridThreeDay: {
+                type: 'timeGrid',
+                duration: { days: 3 },
+                buttonText: '3 dias'
+            },
+            timeGridFifteenDay: {
+                type: 'dayGrid',
+                duration: { days: 15 },
+                buttonText: '15 dias'
+            }
+        },
+        events: loadEvents,
+        eventClick: function(info) {
+            showEventDetails(info.event);
+        },
+        eventClassNames: function(arg) {
+            return ['border-0'];
+        }
+    });
+    
+    calendar.render();
+});
+
+async function loadEvents(fetchInfo, successCallback, failureCallback) {
+    try {
+        const response = await fetch(
+            `/calendar/api/events?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`
+        );
+        const events = await response.json();
+        successCallback(events);
+    } catch (error) {
+        console.error('Erro ao carregar eventos:', error);
+        failureCallback(error);
+    }
+}
+
+function showEventDetails(event) {
+    const modal = new bootstrap.Modal(document.getElementById('eventModal'));
+    const data = event.extendedProps;
+    
+    document.getElementById('eventModalTitle').textContent = event.title;
+    
+    let bodyHtml = `
+        <p><strong>Data:</strong> ${new Date(event.start).toLocaleDateString('pt-BR')}</p>
+        <p><strong>Valor:</strong> R$ ${data.amount.toFixed(2)}</p>
+        <p><strong>Tipo:</strong> ${data.typeLabel}</p>
+    `;
+    
+    if (data.description) {
+        bodyHtml += `<p><strong>Descrição:</strong> ${data.description}</p>`;
+    }
+    
+    if (data.status) {
+        bodyHtml += `<p><strong>Status:</strong> ${data.status}</p>`;
+    }
+    
+    document.getElementById('eventModalBody').innerHTML = bodyHtml;
+    document.getElementById('eventModalLink').href = data.link || '#';
+    
+    modal.show();
+}
+</script>
+{% endblock %}

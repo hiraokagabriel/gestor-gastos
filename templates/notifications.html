@@ -1,0 +1,238 @@
+{% extends 'base.html' %}
+
+{% block title %}Notificações - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="fas fa-bell"></i> Central de Notificações</h2>
+            <p class="text-muted">Alertas e lembretes importantes</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" onclick="generateNotifications()">
+                <i class="fas fa-sync"></i> Atualizar
+            </button>
+            <button class="btn btn-outline-secondary" onclick="markAllAsRead()">
+                <i class="fas fa-check-double"></i> Marcar Todas como Lidas
+            </button>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="btn-group" role="group">
+                <input type="radio" class="btn-check" name="filter" id="filterAll" checked onchange="filterNotifications('all')">
+                <label class="btn btn-outline-primary" for="filterAll">Todas</label>
+                
+                <input type="radio" class="btn-check" name="filter" id="filterUnread" onchange="filterNotifications('unread')">
+                <label class="btn btn-outline-primary" for="filterUnread">Não Lidas</label>
+                
+                <input type="radio" class="btn-check" name="filter" id="filterUrgent" onchange="filterNotifications('urgent')">
+                <label class="btn btn-outline-danger" for="filterUrgent">Urgentes</label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lista de Notificações -->
+    <div id="notificationsList">
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Carregando...</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="noNotifications" class="alert alert-info" style="display: none;">
+        <i class="fas fa-info-circle"></i> Nenhuma notificação encontrada.
+    </div>
+</div>
+
+<script>
+let currentFilter = 'all';
+let allNotifications = [];
+
+const priorityIcons = {
+    'urgent': '<i class="fas fa-exclamation-triangle text-danger"></i>',
+    'high': '<i class="fas fa-exclamation-circle text-warning"></i>',
+    'normal': '<i class="fas fa-info-circle text-primary"></i>',
+    'low': '<i class="fas fa-check-circle text-secondary"></i>'
+};
+
+const priorityClasses = {
+    'urgent': 'border-danger',
+    'high': 'border-warning',
+    'normal': 'border-primary',
+    'low': 'border-secondary'
+};
+
+async function loadNotifications() {
+    try {
+        const response = await fetch('/notifications/api/notifications');
+        allNotifications = await response.json();
+        renderNotifications();
+        updateBadge();
+    } catch (error) {
+        console.error('Erro ao carregar notificações:', error);
+    }
+}
+
+function renderNotifications() {
+    const container = document.getElementById('notificationsList');
+    const noNotif = document.getElementById('noNotifications');
+    
+    let filtered = allNotifications;
+    
+    if (currentFilter === 'unread') {
+        filtered = allNotifications.filter(n => !n.read);
+    } else if (currentFilter === 'urgent') {
+        filtered = allNotifications.filter(n => n.priority === 'urgent' || n.priority === 'high');
+    }
+    
+    if (filtered.length === 0) {
+        container.innerHTML = '';
+        noNotif.style.display = 'block';
+        return;
+    }
+    
+    noNotif.style.display = 'none';
+    
+    container.innerHTML = filtered.map(notif => `
+        <div class="card mb-3 ${priorityClasses[notif.priority]} ${notif.read ? 'opacity-50' : ''} border-start border-4">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-auto">
+                        ${priorityIcons[notif.priority]}
+                    </div>
+                    <div class="col">
+                        <h5 class="card-title mb-1">
+                            ${notif.title}
+                            ${!notif.read ? '<span class="badge bg-primary ms-2">Nova</span>' : ''}
+                        </h5>
+                        <p class="card-text mb-1">${notif.message}</p>
+                        <small class="text-muted">
+                            <i class="fas fa-clock"></i> ${formatDate(notif.created_at)}
+                        </small>
+                    </div>
+                    <div class="col-auto">
+                        <div class="btn-group-vertical" role="group">
+                            ${notif.link ? `
+                                <a href="${notif.link}" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
+                            ` : ''}
+                            ${!notif.read ? `
+                                <button class="btn btn-sm btn-outline-success" onclick="markAsRead(${notif.id})">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                            ` : ''}
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteNotification(${notif.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterNotifications(filter) {
+    currentFilter = filter;
+    renderNotifications();
+}
+
+async function markAsRead(id) {
+    try {
+        await fetch(`/notifications/api/notifications/${id}/read`, { method: 'POST' });
+        await loadNotifications();
+    } catch (error) {
+        console.error('Erro ao marcar como lida:', error);
+    }
+}
+
+async function markAllAsRead() {
+    try {
+        await fetch('/notifications/api/notifications/read-all', { method: 'POST' });
+        await loadNotifications();
+        showAlert('Todas as notificações marcadas como lidas!', 'success');
+    } catch (error) {
+        console.error('Erro ao marcar todas como lidas:', error);
+    }
+}
+
+async function deleteNotification(id) {
+    if (!confirm('Deseja deletar esta notificação?')) return;
+    
+    try {
+        await fetch(`/notifications/api/notifications/${id}`, { method: 'DELETE' });
+        await loadNotifications();
+    } catch (error) {
+        console.error('Erro ao deletar notificação:', error);
+    }
+}
+
+async function generateNotifications() {
+    try {
+        const response = await fetch('/notifications/api/notifications/generate', { method: 'POST' });
+        const result = await response.json();
+        
+        showAlert(`${result.generated} novas notificações geradas!`, 'success');
+        await loadNotifications();
+    } catch (error) {
+        console.error('Erro ao gerar notificações:', error);
+    }
+}
+
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = now - date;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    
+    if (minutes < 1) return 'Agora';
+    if (minutes < 60) return `Há ${minutes} minuto${minutes > 1 ? 's' : ''}`;
+    if (hours < 24) return `Há ${hours} hora${hours > 1 ? 's' : ''}`;
+    if (days < 7) return `Há ${days} dia${days > 1 ? 's' : ''}`;
+    
+    return date.toLocaleDateString('pt-BR');
+}
+
+function updateBadge() {
+    const unread = allNotifications.filter(n => !n.read).length;
+    const badge = document.getElementById('notificationBadge');
+    if (badge) {
+        if (unread > 0) {
+            badge.textContent = unread > 99 ? '99+' : unread;
+            badge.style.display = 'inline';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.container').firstChild);
+    setTimeout(() => alertDiv.remove(), 3000);
+}
+
+// Carregar ao iniciar
+document.addEventListener('DOMContentLoaded', () => {
+    loadNotifications();
+    // Auto-gerar notificações ao entrar
+    generateNotifications();
+});
+
+// Atualizar a cada 5 minutos
+setInterval(generateNotifications, 300000);
+</script>
+{% endblock %}
