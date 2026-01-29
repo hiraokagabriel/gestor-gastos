@@ -119,6 +119,17 @@
     margin-right: 5px;
     margin-bottom: 5px;
 }
+
+/* Melhorar botões de navegação do calendário */
+.fc .fc-button {
+    padding: 0.6em 1em;
+    font-size: 1rem;
+}
+
+.fc .fc-toolbar-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
 </style>
 {% endblock %}
 
@@ -127,17 +138,17 @@
     <div class="row mb-4">
         <div class="col-md-8">
             <h2><i class="fas fa-calendar-alt"></i> Calendário Financeiro</h2>
-            <p class="text-muted">Visualize todos os seus compromissos financeiros</p>
+            <p class="text-muted">Visualize todos os seus compromissos financeiros. Use os botões no calendário para navegar entre meses.</p>
         </div>
         <div class="col-md-4 text-end">
             <div class="filter-buttons">
-                <button class="btn btn-sm btn-outline-primary" onclick="filterEvents('all')">
+                <button class="btn btn-sm btn-outline-primary active" id="filterAll" onclick="filterEvents('all')">
                     <i class="fas fa-list"></i> Todos
                 </button>
-                <button class="btn btn-sm btn-outline-danger" onclick="filterEvents('invoice')">
+                <button class="btn btn-sm btn-outline-danger" id="filterInvoice" onclick="filterEvents('invoice')">
                     <i class="fas fa-credit-card"></i> Faturas
                 </button>
-                <button class="btn btn-sm btn-outline-warning" onclick="filterEvents('bill')">
+                <button class="btn btn-sm btn-outline-warning" id="filterBill" onclick="filterEvents('bill')">
                     <i class="fas fa-file-invoice"></i> Boletos
                 </button>
             </div>
@@ -247,7 +258,7 @@ document.addEventListener('DOMContentLoaded', function() {
         headerToolbar: {
             left: 'prev,next today',
             center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay,timeGridThreeDay,timeGridFifteenDay'
+            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
         },
         buttonText: {
             today: 'Hoje',
@@ -255,18 +266,6 @@ document.addEventListener('DOMContentLoaded', function() {
             week: 'Semana',
             day: 'Dia',
             list: 'Lista'
-        },
-        views: {
-            timeGridThreeDay: {
-                type: 'timeGrid',
-                duration: { days: 3 },
-                buttonText: '3 dias'
-            },
-            timeGridFifteenDay: {
-                type: 'dayGrid',
-                duration: { days: 15 },
-                buttonText: '15 dias'
-            }
         },
         events: loadEvents,
         eventClick: function(info) {
@@ -311,6 +310,20 @@ function filterEventsByType(events, type) {
 
 function filterEvents(type) {
     currentFilter = type;
+    
+    // Atualizar botões ativos
+    document.getElementById('filterAll').classList.remove('active');
+    document.getElementById('filterInvoice').classList.remove('active');
+    document.getElementById('filterBill').classList.remove('active');
+    
+    if (type === 'all') {
+        document.getElementById('filterAll').classList.add('active');
+    } else if (type === 'invoice') {
+        document.getElementById('filterInvoice').classList.add('active');
+    } else if (type === 'bill') {
+        document.getElementById('filterBill').classList.add('active');
+    }
+    
     calendar.refetchEvents();
 }
 

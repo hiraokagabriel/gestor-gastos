@@ -25,11 +25,16 @@
             font-size: 0.65rem;
             padding: 0.25em 0.5em;
         }
+        
+        /* Ocultar navegação temporal na página do calendário */
+        body.calendar-page .temporal-navigation {
+            display: none !important;
+        }
     </style>
     
     {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body{% if request.endpoint == 'calendar.index' %} class="calendar-page"{% endif %}>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container-fluid">
@@ -82,8 +87,8 @@
         </div>
     </nav>
 
-    <!-- Barra de Navegação Temporal -->
-    <div class="bg-light border-bottom py-2">
+    <!-- Barra de Navegação Temporal (oculta na página do calendário) -->
+    <div class="bg-light border-bottom py-2 temporal-navigation">
         <div class="container-fluid">
             <div class="row align-items-center">
                 <div class="col-md-6">
@@ -132,7 +137,7 @@
     </div>
 
     <!-- Main Content -->
-    <main class="container-fluid my-4">
+    <main class="{% if request.endpoint == 'calendar.index' %}container-fluid{% else %}container-fluid{% endif %} my-4">
         {% block content %}{% endblock %}
     </main>
 
@@ -157,7 +162,10 @@
                 month: 'long', 
                 year: 'numeric' 
             });
-            document.getElementById('currentDateDisplay').textContent = dateStr;
+            const currentDateEl = document.getElementById('currentDateDisplay');
+            if (currentDateEl) {
+                currentDateEl.textContent = dateStr;
+            }
             
             // Carregar contador de notificações
             updateNotificationBadge();
