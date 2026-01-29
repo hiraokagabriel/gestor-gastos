@@ -123,11 +123,16 @@
                     Voltar para Hoje
                 </button>
             </div>
+            
+            <!-- Saldo Projetado (aparece quando navega para outros meses) -->
+            <div id="projectedBalanceSection" class="mt-2" style="display: none;">
+                <!-- Conteúdo preenchido via JavaScript -->
+            </div>
         </div>
     </div>
 
     <!-- Main Content -->
-    <main class="container my-4">
+    <main class="container-fluid my-4">
         {% block content %}{% endblock %}
     </main>
 
