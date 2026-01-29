@@ -1,18 +1,22 @@
 // Controle de Navegação Temporal
-let viewingMonth = new Date().getMonth() + 1;
-let viewingYear = new Date().getFullYear();
-const currentMonth = new Date().getMonth() + 1;
-const currentYear = new Date().getFullYear();
+if (typeof viewingMonth === 'undefined') {
+    var viewingMonth = new Date().getMonth() + 1;
+    var viewingYear = new Date().getFullYear();
+    var currentMonth = new Date().getMonth() + 1;
+    var currentYear = new Date().getFullYear();
+}
 
-const monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+if (typeof monthNamesGlobal === 'undefined') {
+    var monthNamesGlobal = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+}
 
 function updateTemporalNav() {
     const display = document.getElementById('temporalMonthDisplay');
     const alert = document.getElementById('temporalAlert');
     
     if (display) {
-        display.textContent = `${monthNames[viewingMonth]}/${viewingYear}`;
+        display.textContent = `${monthNamesGlobal[viewingMonth]}/${viewingYear}`;
     }
     
     // Mostrar alerta se não estiver no mês atual
@@ -56,7 +60,7 @@ function goToToday() {
         method: 'POST'
     }).then(() => {
         reloadPageData();
-    });
+    }).catch(err => console.error('Erro ao resetar data:', err));
 }
 
 function saveViewingDate() {
@@ -67,7 +71,7 @@ function saveViewingDate() {
             month: viewingMonth,
             year: viewingYear
         })
-    });
+    }).catch(err => console.error('Erro ao salvar data:', err));
 }
 
 function reloadPageData() {

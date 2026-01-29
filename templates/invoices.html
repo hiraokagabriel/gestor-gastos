@@ -28,7 +28,7 @@
                         </tr>
                     </thead>
                     <tbody id="timelineBody">
-                        <!-- Preenchido via JavaScript -->
+                        <tr><td colspan="4" class="text-center">Carregando...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -43,7 +43,11 @@
     </div>
 
     <div id="invoicesList" class="row">
-        <!-- Preenchido via JavaScript -->
+        <div class="col-12 text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Carregando...</span>
+            </div>
+        </div>
     </div>
 
     <div id="noInvoices" class="alert alert-info" style="display: none;">
@@ -66,8 +70,9 @@
                         <thead>
                             <tr>
                                 <th>Descrição</th>
+                                <th>Valor Total</th>
                                 <th>Parcela</th>
-                                <th>Valor</th>
+                                <th>Valor Parcela</th>
                                 <th>Vencimento</th>
                                 <th>Status</th>
                             </tr>
@@ -83,25 +88,36 @@
 </div>
 
 <script>
+// Variáveis locais (não conflitam com temporal-nav.js)
 let currentViewingMonth = new Date().getMonth() + 1;
 let currentViewingYear = new Date().getFullYear();
 let currentInvoiceDetails = null;
 
-const monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
+const monthNamesLocal = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
                     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
 function updateMonthDisplay() {
     document.getElementById('monthDisplay').textContent = 
-        `${monthNames[currentViewingMonth]}/${currentViewingYear}`;
+        `${monthNamesLocal[currentViewingMonth]}/${currentViewingYear}`;
 }
 
 async function loadTimeline() {
     try {
         const response = await fetch('/invoices/api/timeline');
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const timeline = await response.json();
         
         const tbody = document.getElementById('timelineBody');
         tbody.innerHTML = '';
+        
+        if (!timeline || timeline.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center">Nenhum dado disponível</td></tr>';
+            return;
+        }
         
         timeline.forEach(item => {
             const row = document.createElement('tr');
@@ -133,12 +149,19 @@ async function loadTimeline() {
         });
     } catch (error) {
         console.error('Erro ao carregar timeline:', error);
+        document.getElementById('timelineBody').innerHTML = 
+            '<tr><td colspan="4" class="text-center text-danger">Erro ao carregar dados. Veja o console.</td></tr>';
     }
 }
 
 async function loadInvoices() {
     try {
         const response = await fetch(`/invoices/api/invoices?month=${currentViewingMonth}&year=${currentViewingYear}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const invoices = await response.json();
         
         const container = document.getElementById('invoicesList');
@@ -146,7 +169,7 @@ async function loadInvoices() {
         
         container.innerHTML = '';
         
-        if (invoices.length === 0) {
+        if (!invoices || invoices.length === 0) {
             noInvoices.style.display = 'block';
             return;
         }
@@ -197,7 +220,7 @@ async function loadInvoices() {
                         <div class="card-footer">
                             <div class="btn-group w-100" role="group">
                                 <button class="btn btn-outline-primary" 
-                                        onclick='showInvoiceDetails(${JSON.stringify(item)})'>
+                                        onclick='showInvoiceDetails(${JSON.stringify(item).replace(/'/g, "&apos;")})'>
                                     <i class="fas fa-list"></i> Detalhes
                                 </button>
                                 ${invoice && !isPaid && statusLabel !== 'FUTURA' ? `
@@ -220,6 +243,8 @@ async function loadInvoices() {
         });
     } catch (error) {
         console.error('Erro ao carregar faturas:', error);
+        document.getElementById('invoicesList').innerHTML = 
+            '<div class="col-12"><div class="alert alert-danger">Erro ao carregar faturas. Veja o console do navegador e do Python.</div></div>';
     }
 }
 
@@ -229,19 +254,35 @@ function showInvoiceDetails(item) {
     tbody.innerHTML = '';
     
     if (!item.installments || item.installments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">Nenhuma parcela encontrada</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhuma parcela encontrada</td></tr>';
     } else {
+        // Agrupar por transação
+        const transactionMap = {};
         item.installments.forEach(inst => {
-            const row = `
-                <tr>
-                    <td>${inst.transaction ? inst.transaction.description : 'N/A'}</td>
-                    <td>${inst.installment_number}/${inst.total_installments}</td>
-                    <td>R$ ${inst.amount.toFixed(2)}</td>
-                    <td>${new Date(inst.due_date).toLocaleDateString('pt-BR')}</td>
-                    <td>${inst.paid ? '<span class="badge bg-success">Paga</span>' : '<span class="badge bg-warning">Aberta</span>'}</td>
-                </tr>
-            `;
-            tbody.innerHTML += row;
+            if (!transactionMap[inst.transaction_id]) {
+                transactionMap[inst.transaction_id] = [];
+            }
+            transactionMap[inst.transaction_id].push(inst);
+        });
+        
+        // Renderizar
+        Object.values(transactionMap).forEach(instGroup => {
+            const firstInst = instGroup[0];
+            const totalValue = firstInst.amount * firstInst.total_installments;
+            
+            instGroup.forEach(inst => {
+                const row = `
+                    <tr>
+                        <td>${inst.description || 'Compra'}</td>
+                        <td><strong>R$ ${totalValue.toFixed(2)}</strong></td>
+                        <td><span class="badge bg-info">${inst.installment_number}/${inst.total_installments}</span></td>
+                        <td>R$ ${inst.amount.toFixed(2)}</td>
+                        <td>${new Date(inst.due_date).toLocaleDateString('pt-BR')}</td>
+                        <td>${inst.paid ? '<span class="badge bg-success">Paga</span>' : '<span class="badge bg-warning">Aberta</span>'}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
         });
     }
     
@@ -260,6 +301,8 @@ async function payInvoice(invoiceId) {
             showAlert('Fatura marcada como paga com sucesso!', 'success');
             await loadInvoices();
             await loadTimeline();
+        } else {
+            throw new Error('Erro ao pagar fatura');
         }
     } catch (error) {
         console.error('Erro ao pagar fatura:', error);
@@ -279,6 +322,8 @@ async function unpayInvoice(invoiceId) {
             showAlert('Fatura desmarcada como paga!', 'warning');
             await loadInvoices();
             await loadTimeline();
+        } else {
+            throw new Error('Erro ao despagar fatura');
         }
     } catch (error) {
         console.error('Erro ao despagar fatura:', error);
@@ -296,7 +341,7 @@ function viewMonth(month, year) {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({month, year})
-    });
+    }).catch(err => console.error('Erro ao salvar data:', err));
     
     loadInvoices();
 }
