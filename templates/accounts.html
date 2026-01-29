@@ -1,13 +1,35 @@
 {% extends "base.html" %}
 
-{% block title %}Contas - Gestor de Gastos{% endblock %}
+{% block title %}Lançamentos - Gestor de Gastos{% endblock %}
+
+{% block extra_css %}
+<style>
+.card-stat {
+    transition: transform 0.2s;
+}
+.card-stat:hover {
+    transform: translateY(-5px);
+}
+.badge-consolidated {
+    background-color: #28a745;
+}
+.badge-pending {
+    background-color: #ffc107;
+    color: #000;
+}
+.table-actions {
+    white-space: nowrap;
+}
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col">
-        <h2><i class="fas fa-money-bill-wave"></i> Receitas e Despesas</h2>
+    <div class="col-md-8">
+        <h2><i class="fas fa-money-bill-wave"></i> Lançamentos Financeiros</h2>
+        <p class="text-muted">Gerencie receitas e despesas com sistema de consolidação</p>
     </div>
-    <div class="col text-end">
+    <div class="col-md-4 text-end">
         <button class="btn btn-success me-2" onclick="openAccountModal('income')">
             <i class="fas fa-plus"></i> Nova Receita
         </button>
@@ -17,47 +39,112 @@
     </div>
 </div>
 
-<!-- Resumo -->
+<!-- Filtro de Mês/Ano -->
 <div class="row mb-4">
     <div class="col-md-4">
-        <div class="card text-white bg-success">
-            <div class="card-body text-center">
-                <h6 class="card-title">Receitas do Mês</h6>
-                <h3 id="totalIncome">R$ 0,00</h3>
+        <label class="form-label"><i class="fas fa-calendar"></i> Período:</label>
+        <div class="input-group">
+            <select class="form-select" id="filterMonth" onchange="loadData()">
+                <option value="1">Janeiro</option>
+                <option value="2">Fevereiro</option>
+                <option value="3">Março</option>
+                <option value="4">Abril</option>
+                <option value="5">Maio</option>
+                <option value="6">Junho</option>
+                <option value="7">Julho</option>
+                <option value="8">Agosto</option>
+                <option value="9">Setembro</option>
+                <option value="10">Outubro</option>
+                <option value="11">Novembro</option>
+                <option value="12">Dezembro</option>
+            </select>
+            <input type="number" class="form-control" id="filterYear" placeholder="Ano" value="2026" onchange="loadData()">
+        </div>
+    </div>
+</div>
+
+<!-- Cards de Resumo -->
+<div class="row mb-4">
+    <!-- Receitas -->
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card card-stat border-success shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title text-success"><i class="fas fa-arrow-up"></i> Receitas</h6>
+                <h4 class="text-success mb-1" id="totalIncome">R$ 0,00</h4>
+                <small class="text-muted">Consolidadas: <strong id="incomeConsolidated">R$ 0,00</strong></small><br>
+                <small class="text-muted">Pendentes: <strong id="incomePending">R$ 0,00</strong></small>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card text-white bg-danger">
-            <div class="card-body text-center">
-                <h6 class="card-title">Despesas do Mês</h6>
-                <h3 id="totalExpenses">R$ 0,00</h3>
+    
+    <!-- Despesas -->
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card card-stat border-danger shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title text-danger"><i class="fas fa-arrow-down"></i> Despesas</h6>
+                <h4 class="text-danger mb-1" id="totalExpenses">R$ 0,00</h4>
+                <small class="text-muted">Consolidadas: <strong id="expenseConsolidated">R$ 0,00</strong></small><br>
+                <small class="text-muted">Não Consolidadas: <strong class="text-warning" id="expensePending">R$ 0,00</strong></small>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card text-white bg-primary">
-            <div class="card-body text-center">
-                <h6 class="card-title">Saldo do Mês</h6>
-                <h3 id="balance">R$ 0,00</h3>
+    
+    <!-- Saldo em Caixa (Consolidado) -->
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card card-stat border-primary shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title text-primary"><i class="fas fa-wallet"></i> Saldo em Caixa</h6>
+                <h4 class="mb-0" id="balanceConsolidated">R$ 0,00</h4>
+                <small class="text-muted">(Apenas consolidados)</small>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Saldo Total (Previsto) -->
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card card-stat border-info shadow-sm">
+            <div class="card-body">
+                <h6 class="card-title text-info"><i class="fas fa-chart-line"></i> Saldo Total</h6>
+                <h4 class="mb-0" id="balanceTotal">R$ 0,00</h4>
+                <small class="text-muted">(Consolidados + Pendentes)</small>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Filtros -->
+<!-- Filtros de Status e Tipo -->
 <div class="row mb-4">
     <div class="col">
+        <div class="btn-group me-3" role="group">
+            <button type="button" class="btn btn-outline-secondary active" data-filter="all" onclick="filterByStatus('all')">
+                <i class="fas fa-list"></i> Todos
+            </button>
+            <button type="button" class="btn btn-outline-warning" data-filter="pending" onclick="filterByStatus('pending')">
+                <i class="fas fa-clock"></i> Pendentes
+            </button>
+            <button type="button" class="btn btn-outline-success" data-filter="consolidated" onclick="filterByStatus('consolidated')">
+                <i class="fas fa-check-circle"></i> Consolidados
+            </button>
+        </div>
+        
         <div class="btn-group" role="group">
-            <button type="button" class="btn btn-outline-primary active" onclick="filterAccounts('all')">Todos</button>
-            <button type="button" class="btn btn-outline-success" onclick="filterAccounts('income')">Receitas</button>
-            <button type="button" class="btn btn-outline-danger" onclick="filterAccounts('expense')">Despesas</button>
+            <button type="button" class="btn btn-outline-success" onclick="filterByType('income')">
+                <i class="fas fa-arrow-up"></i> Receitas
+            </button>
+            <button type="button" class="btn btn-outline-danger" onclick="filterByType('expense')">
+                <i class="fas fa-arrow-down"></i> Despesas
+            </button>
         </div>
     </div>
 </div>
 
+<!-- Lista de Lançamentos -->
 <div id="accountsList">
-    <!-- Contas serão carregadas aqui -->
+    <div class="text-center">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Carregando...</span>
+        </div>
+    </div>
 </div>
 
 <!-- Modal para Adicionar/Editar Conta -->
@@ -65,7 +152,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="accountModalTitle">Nova Conta</h5>
+                <h5 class="modal-title" id="accountModalTitle">Novo Lançamento</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -92,20 +179,34 @@
                         <datalist id="accountCategories">
                             <option value="Salário">
                             <option value="Freelance">
+                            <option value="Investimentos">
                             <option value="Alimentação">
                             <option value="Transporte">
                             <option value="Moradia">
                             <option value="Lazer">
                             <option value="Saúde">
                             <option value="Educação">
+                            <option value="Assinaturas">
                             <option value="Outros">
                         </datalist>
                     </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="accountRecurring">
-                        <label class="form-check-label" for="accountRecurring">
-                            Recorrente (mensal)
-                        </label>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="accountRecurring">
+                                <label class="form-check-label" for="accountRecurring">
+                                    <i class="fas fa-sync"></i> Recorrente (mensal)
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="accountConsolidated">
+                                <label class="form-check-label" for="accountConsolidated">
+                                    <i class="fas fa-check-circle"></i> Já consolidado
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -121,99 +222,193 @@
 {% block extra_js %}
 <script>
 let currentFilter = 'all';
+let currentTypeFilter = null;
 
-async function loadAccounts(filter = null) {
-    if (filter) currentFilter = filter;
+document.addEventListener('DOMContentLoaded', function() {
+    // Definir mês e ano atuais
+    const today = new Date();
+    document.getElementById('filterMonth').value = today.getMonth() + 1;
+    document.getElementById('filterYear').value = today.getFullYear();
+    
+    loadData();
+});
+
+async function loadData() {
+    await loadSummary();
+    await loadAccounts();
+}
+
+async function loadSummary() {
+    const month = document.getElementById('filterMonth').value;
+    const year = document.getElementById('filterYear').value;
     
     try {
-        const url = currentFilter === 'all' ? '/accounts/api/accounts' : `/accounts/api/accounts?type=${currentFilter}`;
+        const response = await fetch(`/accounts/api/accounts/summary?month=${month}&year=${year}`);
+        const summary = await response.json();
+        
+        // Receitas
+        document.getElementById('totalIncome').textContent = `R$ ${summary.income_total.toFixed(2)}`;
+        document.getElementById('incomeConsolidated').textContent = `R$ ${summary.income_consolidated.toFixed(2)}`;
+        document.getElementById('incomePending').textContent = `R$ ${summary.income_pending.toFixed(2)}`;
+        
+        // Despesas
+        document.getElementById('totalExpenses').textContent = `R$ ${summary.expense_total.toFixed(2)}`;
+        document.getElementById('expenseConsolidated').textContent = `R$ ${summary.expense_consolidated.toFixed(2)}`;
+        document.getElementById('expensePending').textContent = `R$ ${summary.expense_pending.toFixed(2)}`;
+        
+        // Saldos
+        const consolidatedEl = document.getElementById('balanceConsolidated');
+        consolidatedEl.textContent = `R$ ${summary.balance_consolidated.toFixed(2)}`;
+        consolidatedEl.className = summary.balance_consolidated >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
+        
+        const totalEl = document.getElementById('balanceTotal');
+        totalEl.textContent = `R$ ${summary.balance_total.toFixed(2)}`;
+        totalEl.className = summary.balance_total >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
+        
+    } catch (error) {
+        console.error('Erro ao carregar resumo:', error);
+    }
+}
+
+async function loadAccounts() {
+    const month = document.getElementById('filterMonth').value;
+    const year = document.getElementById('filterYear').value;
+    
+    try {
+        let url = `/accounts/api/accounts?month=${month}&year=${year}`;
+        
+        if (currentFilter !== 'all') {
+            url += `&status=${currentFilter}`;
+        }
+        
+        if (currentTypeFilter) {
+            url += `&type=${currentTypeFilter}`;
+        }
+        
         const response = await fetch(url);
         const accounts = await response.json();
-        
-        // Calcular totais
-        let totalIncome = 0;
-        let totalExpenses = 0;
-        
-        const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-        
-        accounts.forEach(acc => {
-            const accDate = new Date(acc.date);
-            if (accDate >= firstDay && accDate <= today) {
-                if (acc.type === 'income') {
-                    totalIncome += acc.amount;
-                } else {
-                    totalExpenses += acc.amount;
-                }
-            }
-        });
-        
-        document.getElementById('totalIncome').textContent = `R$ ${totalIncome.toFixed(2)}`;
-        document.getElementById('totalExpenses').textContent = `R$ ${totalExpenses.toFixed(2)}`;
-        document.getElementById('balance').textContent = `R$ ${(totalIncome - totalExpenses).toFixed(2)}`;
         
         const accountsList = document.getElementById('accountsList');
         
         if (accounts.length === 0) {
-            accountsList.innerHTML = '<div class="alert alert-info text-center"><i class="fas fa-info-circle"></i> Nenhuma conta encontrada</div>';
+            accountsList.innerHTML = '<div class="alert alert-info text-center"><i class="fas fa-info-circle"></i> Nenhum lançamento encontrado</div>';
             return;
         }
         
         accountsList.innerHTML = `
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Data</th>
-                            <th>Descrição</th>
-                            <th>Categoria</th>
-                            <th>Tipo</th>
-                            <th>Valor</th>
-                            <th>Recorrente</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${accounts.map(acc => `
-                            <tr>
-                                <td>${new Date(acc.date).toLocaleDateString('pt-BR')}</td>
-                                <td>${acc.description}</td>
-                                <td><span class="badge bg-info">${acc.category || 'Sem categoria'}</span></td>
-                                <td><span class="badge bg-${acc.type === 'income' ? 'success' : 'danger'}">${acc.type === 'income' ? 'Receita' : 'Despesa'}</span></td>
-                                <td class="fw-bold ${acc.type === 'income' ? 'text-success' : 'text-danger'}">${acc.type === 'income' ? '+' : '-'} R$ ${acc.amount.toFixed(2)}</td>
-                                <td>${acc.recurring ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-muted"></i>'}</td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary" onclick="editAccount(${acc.id})" title="Editar">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-danger" onclick="deleteAccount(${acc.id})" title="Excluir">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Descrição</th>
+                                    <th>Categoria</th>
+                                    <th>Tipo</th>
+                                    <th class="text-end">Valor</th>
+                                    <th class="text-center">Status</th>
+                                    <th class="text-center">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${accounts.map(acc => `
+                                    <tr class="${acc.consolidated ? 'table-success' : ''}">
+                                        <td>
+                                            ${new Date(acc.date).toLocaleDateString('pt-BR')}
+                                            ${acc.recurring ? '<i class="fas fa-sync text-info" title="Recorrente"></i>' : ''}
+                                        </td>
+                                        <td>
+                                            <strong>${acc.description}</strong>
+                                        </td>
+                                        <td><span class="badge bg-secondary">${acc.category || 'Sem categoria'}</span></td>
+                                        <td>
+                                            <span class="badge bg-${acc.type === 'income' ? 'success' : 'danger'}">
+                                                <i class="fas fa-arrow-${acc.type === 'income' ? 'up' : 'down'}"></i>
+                                                ${acc.type === 'income' ? 'Receita' : 'Despesa'}
+                                            </span>
+                                        </td>
+                                        <td class="text-end fw-bold ${acc.type === 'income' ? 'text-success' : 'text-danger'}">
+                                            ${acc.type === 'income' ? '+' : '-'} R$ ${acc.amount.toFixed(2)}
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge ${acc.consolidated ? 'badge-consolidated' : 'badge-pending'}">
+                                                <i class="fas fa-${acc.consolidated ? 'check-circle' : 'clock'}"></i>
+                                                ${acc.status}
+                                            </span>
+                                        </td>
+                                        <td class="text-center table-actions">
+                                            ${!acc.consolidated ? `
+                                                <button class="btn btn-sm btn-success" onclick="consolidateAccount(${acc.id})" title="Consolidar">
+                                                    <i class="fas fa-check"></i>
+                                                </button>
+                                            ` : `
+                                                <button class="btn btn-sm btn-warning" onclick="unconsolidateAccount(${acc.id})" title="Desfazer">
+                                                    <i class="fas fa-undo"></i>
+                                                </button>
+                                            `}
+                                            <button class="btn btn-sm btn-primary" onclick="editAccount(${acc.id})" title="Editar">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" onclick="deleteAccount(${acc.id})" title="Excluir">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         `;
         
     } catch (error) {
-        console.error('Erro ao carregar contas:', error);
+        console.error('Erro ao carregar lançamentos:', error);
     }
 }
 
-function filterAccounts(filter) {
-    document.querySelectorAll('.btn-group button').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
-    loadAccounts(filter);
+function filterByStatus(status) {
+    currentFilter = status;
+    
+    // Atualizar botões ativos
+    document.querySelectorAll('[data-filter]').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`[data-filter="${status}"]`).classList.add('active');
+    
+    loadAccounts();
+}
+
+function filterByType(type) {
+    if (currentTypeFilter === type) {
+        currentTypeFilter = null;
+        event.target.classList.remove('active');
+    } else {
+        // Remover active de outros botões de tipo
+        document.querySelectorAll('.btn-group:last-child button').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        currentTypeFilter = type;
+        event.target.classList.add('active');
+    }
+    
+    loadAccounts();
 }
 
 function openAccountModal(type) {
     document.getElementById('accountForm').reset();
     document.getElementById('accountId').value = '';
     document.getElementById('accountType').value = type;
-    document.getElementById('accountModalTitle').textContent = type === 'income' ? 'Nova Receita' : 'Nova Despesa';
-    document.getElementById('accountDate').valueAsDate = new Date();
+    document.getElementById('accountModalTitle').innerHTML = `
+        <i class="fas fa-${type === 'income' ? 'arrow-up' : 'arrow-down'}"></i>
+        ${type === 'income' ? 'Nova Receita' : 'Nova Despesa'}
+    `;
+    
+    // Data padrão = hoje
+    const today = new Date();
+    document.getElementById('accountDate').valueAsDate = today;
+    
     new bootstrap.Modal(document.getElementById('accountModal')).show();
 }
 
@@ -229,11 +424,17 @@ async function editAccount(accountId) {
         document.getElementById('accountDate').value = account.date;
         document.getElementById('accountCategory').value = account.category || '';
         document.getElementById('accountRecurring').checked = account.recurring;
+        document.getElementById('accountConsolidated').checked = account.consolidated;
         
-        document.getElementById('accountModalTitle').textContent = account.type === 'income' ? 'Editar Receita' : 'Editar Despesa';
+        document.getElementById('accountModalTitle').innerHTML = `
+            <i class="fas fa-edit"></i>
+            Editar ${account.type === 'income' ? 'Receita' : 'Despesa'}
+        `;
+        
         new bootstrap.Modal(document.getElementById('accountModal')).show();
     } catch (error) {
-        console.error('Erro ao carregar conta:', error);
+        console.error('Erro ao carregar lançamento:', error);
+        alert('Erro ao carregar lançamento');
     }
 }
 
@@ -245,7 +446,8 @@ async function saveAccount() {
         type: document.getElementById('accountType').value,
         date: document.getElementById('accountDate').value,
         category: document.getElementById('accountCategory').value,
-        recurring: document.getElementById('accountRecurring').checked
+        recurring: document.getElementById('accountRecurring').checked,
+        consolidated: document.getElementById('accountConsolidated').checked
     };
     
     try {
@@ -260,24 +462,70 @@ async function saveAccount() {
         
         if (response.ok) {
             bootstrap.Modal.getInstance(document.getElementById('accountModal')).hide();
-            loadAccounts();
+            loadData();
+        } else {
+            alert('Erro ao salvar lançamento');
         }
     } catch (error) {
-        console.error('Erro ao salvar conta:', error);
+        console.error('Erro ao salvar lançamento:', error);
+        alert('Erro ao salvar lançamento');
+    }
+}
+
+async function consolidateAccount(accountId) {
+    if (!confirm('Consolidar este lançamento? Ele afetará o saldo em caixa.')) return;
+    
+    try {
+        const response = await fetch(`/accounts/api/accounts/${accountId}/consolidate`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadData();
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Erro ao consolidar lançamento');
+        }
+    } catch (error) {
+        console.error('Erro ao consolidar lançamento:', error);
+        alert('Erro ao consolidar lançamento');
+    }
+}
+
+async function unconsolidateAccount(accountId) {
+    if (!confirm('Reverter consolidação deste lançamento?')) return;
+    
+    try {
+        const response = await fetch(`/accounts/api/accounts/${accountId}/unconsolidate`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadData();
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Erro ao reverter consolidação');
+        }
+    } catch (error) {
+        console.error('Erro ao reverter consolidação:', error);
+        alert('Erro ao reverter consolidação');
     }
 }
 
 async function deleteAccount(accountId) {
-    if (!confirm('Tem certeza que deseja excluir esta conta?')) return;
+    if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
     
     try {
         const response = await fetch(`/accounts/api/accounts/${accountId}`, { method: 'DELETE' });
-        if (response.ok) loadAccounts();
+        if (response.ok) {
+            loadData();
+        } else {
+            alert('Erro ao deletar lançamento');
+        }
     } catch (error) {
-        console.error('Erro ao deletar conta:', error);
+        console.error('Erro ao deletar lançamento:', error);
+        alert('Erro ao deletar lançamento');
     }
 }
-
-document.addEventListener('DOMContentLoaded', () => loadAccounts());
 </script>
 {% endblock %}
