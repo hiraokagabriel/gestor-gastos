@@ -1,6 +1,11 @@
 // Controle de Navegação Temporal
-// Não executar na página do calendário
-if (document.body.classList.contains('calendar-page')) {
+// Verificar se estamos na página do calendário
+const isCalendarPage = () => {
+    return document.body.classList.contains('calendar-page') || 
+           window.location.pathname.includes('/calendar');
+};
+
+if (isCalendarPage()) {
     // Página do calendário - não carregar navegação temporal
     console.log('Página do calendário detectada - temporal-nav desabilitado');
 } else {
@@ -92,7 +97,7 @@ if (document.body.classList.contains('calendar-page')) {
         }
     }
 
-    function prevMonth() {
+    window.prevMonth = function() {
         viewingMonth--;
         if (viewingMonth < 1) {
             viewingMonth = 12;
@@ -101,9 +106,9 @@ if (document.body.classList.contains('calendar-page')) {
         updateTemporalNav();
         saveViewingDate();
         reloadPageData();
-    }
+    };
 
-    function nextMonth() {
+    window.nextMonth = function() {
         viewingMonth++;
         if (viewingMonth > 12) {
             viewingMonth = 1;
@@ -112,9 +117,9 @@ if (document.body.classList.contains('calendar-page')) {
         updateTemporalNav();
         saveViewingDate();
         reloadPageData();
-    }
+    };
 
-    function goToToday() {
+    window.goToToday = function() {
         viewingMonth = currentMonth;
         viewingYear = currentYear;
         updateTemporalNav();
@@ -124,7 +129,7 @@ if (document.body.classList.contains('calendar-page')) {
         }).then(() => {
             reloadPageData();
         }).catch(err => console.error('Erro ao resetar data:', err));
-    }
+    };
 
     function saveViewingDate() {
         fetch('/invoices/api/set-viewing-date', {
