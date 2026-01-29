@@ -5,19 +5,119 @@
 {% block extra_css %}
 <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
 <style>
+/* Eventos maiores e mais visíveis */
 .fc-event {
     cursor: pointer;
+    font-size: 0.9rem;
+    padding: 4px 6px !important;
+    margin: 2px 0 !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: transform 0.2s, box-shadow 0.2s;
 }
+
+.fc-event:hover {
+    transform: scale(1.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+    z-index: 999;
+}
+
+/* Estilos específicos por tipo */
+.event-invoice {
+    font-weight: 700 !important;
+    border-left: 4px solid #fff !important;
+}
+
+.event-bill {
+    font-weight: 600 !important;
+    border-left: 4px solid #000 !important;
+}
+
+.event-installment {
+    font-style: italic;
+    opacity: 0.9;
+}
+
+.event-recurring {
+    border-style: dashed !important;
+    border-width: 2px !important;
+}
+
+.event-income {
+    border-left: 4px solid #fff !important;
+}
+
+/* Legenda melhorada */
 .legend-item {
     display: inline-block;
-    margin-right: 15px;
+    margin-right: 20px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background-color: #f8f9fa;
+    transition: background-color 0.2s;
 }
+
+.legend-item:hover {
+    background-color: #e9ecef;
+}
+
 .legend-color {
     display: inline-block;
-    width: 15px;
-    height: 15px;
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    border-radius: 4px;
+    vertical-align: middle;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.legend-icon {
+    font-size: 1.2rem;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+/* Tooltip customizado */
+.event-tooltip {
+    position: absolute;
+    background: rgba(0,0,0,0.9);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    z-index: 10000;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    max-width: 300px;
+}
+
+/* Melhorar visualização do calendário */
+.fc-daygrid-day-number {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.fc-col-header-cell {
+    background-color: #f8f9fa;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+}
+
+.fc-daygrid-day.fc-day-today {
+    background-color: #fff3cd !important;
+}
+
+/* Filtros */
+.filter-buttons {
+    margin-bottom: 15px;
+}
+
+.filter-buttons .btn {
     margin-right: 5px;
-    border-radius: 3px;
+    margin-bottom: 5px;
 }
 </style>
 {% endblock %}
@@ -25,42 +125,90 @@
 {% block content %}
 <div class="container-fluid mt-4">
     <div class="row mb-4">
-        <div class="col">
+        <div class="col-md-8">
             <h2><i class="fas fa-calendar-alt"></i> Calendário Financeiro</h2>
-            <p class="text-muted">Visualize vencimentos e compromissos financeiros</p>
+            <p class="text-muted">Visualize todos os seus compromissos financeiros</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <div class="filter-buttons">
+                <button class="btn btn-sm btn-outline-primary" onclick="filterEvents('all')">
+                    <i class="fas fa-list"></i> Todos
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="filterEvents('invoice')">
+                    <i class="fas fa-credit-card"></i> Faturas
+                </button>
+                <button class="btn btn-sm btn-outline-warning" onclick="filterEvents('bill')">
+                    <i class="fas fa-file-invoice"></i> Boletos
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- Legenda -->
-    <div class="card mb-4">
+    <!-- Legenda Completa -->
+    <div class="card mb-4 shadow-sm">
         <div class="card-body">
-            <h6>Legenda:</h6>
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: #dc3545;"></span>
-                <span>Faturas de Cartões</span>
-            </div>
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: #ffc107;"></span>
-                <span>Boletos</span>
-            </div>
-            <div class="legend-item">
-                <span class="legend-color" style="background-color: #0dcaf0;"></span>
-                <span>Parcelas</span>
+            <h6 class="mb-3"><i class="fas fa-info-circle"></i> Legenda de Eventos:</h6>
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <div class="legend-item">
+                        <span class="legend-icon">💳</span>
+                        <span class="legend-color" style="background-color: #dc3545;"></span>
+                        <span><strong>Faturas de Cartões</strong> (Abertas)</span>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="legend-item">
+                        <span class="legend-icon">📄</span>
+                        <span class="legend-color" style="background-color: #ffc107;"></span>
+                        <span><strong>Boletos</strong> (Pendentes)</span>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="legend-item">
+                        <span class="legend-icon">🔹</span>
+                        <span class="legend-color" style="background-color: #0dcaf0;"></span>
+                        <span><strong>Parcelas</strong> Individuais</span>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="legend-item">
+                        <span class="legend-icon">🔁</span>
+                        <span class="legend-color" style="background-color: #6f42c1;"></span>
+                        <span><strong>Despesas Recorrentes</strong></span>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="legend-item">
+                        <span class="legend-icon">💵</span>
+                        <span class="legend-color" style="background-color: #20c997;"></span>
+                        <span><strong>Receitas Recorrentes</strong></span>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="legend-item">
+                        <span class="legend-icon">✓</span>
+                        <span class="legend-color" style="background-color: #28a745;"></span>
+                        <span><strong>Já Pagos</strong></span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- Calendário -->
-    <div class="card">
-        <div class="card-body">
+    <div class="card shadow">
+        <div class="card-body p-3">
             <div id='calendar'></div>
         </div>
     </div>
 </div>
 
+<!-- Tooltip -->
+<div id="eventTooltip" class="event-tooltip" style="display: none;"></div>
+
 <!-- Modal de Detalhes do Evento -->
 <div class="modal fade" id="eventModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="eventModalTitle"></h5>
@@ -70,7 +218,9 @@
                 <!-- Preenchido via JavaScript -->
             </div>
             <div class="modal-footer">
-                <a id="eventModalLink" href="#" class="btn btn-primary">Ver Detalhes</a>
+                <a id="eventModalLink" href="#" class="btn btn-primary" target="_blank">
+                    <i class="fas fa-external-link-alt"></i> Ver Detalhes Completos
+                </a>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
             </div>
         </div>
@@ -84,6 +234,8 @@
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales/pt-br.global.min.js'></script>
 <script>
 let calendar;
+let allEvents = [];
+let currentFilter = 'all';
 
 document.addEventListener('DOMContentLoaded', function() {
     const calendarEl = document.getElementById('calendar');
@@ -91,10 +243,11 @@ document.addEventListener('DOMContentLoaded', function() {
     calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         locale: 'pt-br',
+        height: 'auto',
         headerToolbar: {
             left: 'prev,next today',
             center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
+            right: 'dayGridMonth,timeGridWeek,timeGridDay,timeGridThreeDay,timeGridFifteenDay'
         },
         buttonText: {
             today: 'Hoje',
@@ -119,8 +272,15 @@ document.addEventListener('DOMContentLoaded', function() {
         eventClick: function(info) {
             showEventDetails(info.event);
         },
-        eventClassNames: function(arg) {
-            return ['border-0'];
+        eventMouseEnter: function(info) {
+            showTooltip(info.event, info.el);
+        },
+        eventMouseLeave: function(info) {
+            hideTooltip();
+        },
+        eventDidMount: function(info) {
+            // Adicionar classe para animação
+            info.el.style.animation = 'fadeIn 0.3s ease-in';
         }
     });
     
@@ -133,31 +293,105 @@ async function loadEvents(fetchInfo, successCallback, failureCallback) {
             `/calendar/api/events?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`
         );
         const events = await response.json();
-        successCallback(events);
+        allEvents = events;
+        
+        // Aplicar filtro atual
+        const filteredEvents = filterEventsByType(events, currentFilter);
+        successCallback(filteredEvents);
     } catch (error) {
         console.error('Erro ao carregar eventos:', error);
         failureCallback(error);
     }
 }
 
+function filterEventsByType(events, type) {
+    if (type === 'all') return events;
+    return events.filter(event => event.extendedProps.type === type);
+}
+
+function filterEvents(type) {
+    currentFilter = type;
+    calendar.refetchEvents();
+}
+
+function showTooltip(event, element) {
+    const tooltip = document.getElementById('eventTooltip');
+    const data = event.extendedProps;
+    
+    let html = `
+        <div style="font-weight: bold; margin-bottom: 5px;">
+            ${data.icon} ${event.title}
+        </div>
+        <div><strong>Valor:</strong> R$ ${data.amount.toFixed(2)}</div>
+        <div><strong>Data:</strong> ${new Date(event.start).toLocaleDateString('pt-BR')}</div>
+    `;
+    
+    if (data.status) {
+        html += `<div><strong>Status:</strong> ${data.status}</div>`;
+    }
+    
+    if (data.card_name) {
+        html += `<div><strong>Cartão:</strong> ${data.card_name}</div>`;
+    }
+    
+    if (data.category) {
+        html += `<div><strong>Categoria:</strong> ${data.category}</div>`;
+    }
+    
+    tooltip.innerHTML = html;
+    
+    // Posicionar tooltip
+    const rect = element.getBoundingClientRect();
+    tooltip.style.left = (rect.left + window.scrollX) + 'px';
+    tooltip.style.top = (rect.bottom + window.scrollY + 5) + 'px';
+    tooltip.style.display = 'block';
+}
+
+function hideTooltip() {
+    document.getElementById('eventTooltip').style.display = 'none';
+}
+
 function showEventDetails(event) {
     const modal = new bootstrap.Modal(document.getElementById('eventModal'));
     const data = event.extendedProps;
     
-    document.getElementById('eventModalTitle').textContent = event.title;
+    document.getElementById('eventModalTitle').innerHTML = `${data.icon} ${event.title}`;
     
     let bodyHtml = `
-        <p><strong>Data:</strong> ${new Date(event.start).toLocaleDateString('pt-BR')}</p>
-        <p><strong>Valor:</strong> R$ ${data.amount.toFixed(2)}</p>
-        <p><strong>Tipo:</strong> ${data.typeLabel}</p>
+        <div class="row">
+            <div class="col-md-6">
+                <p><strong>📅 Data:</strong> ${new Date(event.start).toLocaleDateString('pt-BR', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                })}</p>
+            </div>
+            <div class="col-md-6">
+                <p><strong>💰 Valor:</strong> <span class="text-success fs-5">R$ ${data.amount.toFixed(2)}</span></p>
+            </div>
+        </div>
+        <hr>
+        <p><strong>🏷️ Tipo:</strong> ${data.typeLabel}</p>
     `;
     
     if (data.description) {
-        bodyHtml += `<p><strong>Descrição:</strong> ${data.description}</p>`;
+        bodyHtml += `<p><strong>📝 Descrição:</strong> ${data.description}</p>`;
     }
     
     if (data.status) {
-        bodyHtml += `<p><strong>Status:</strong> ${data.status}</p>`;
+        const statusBadge = data.status === 'Paga' || data.status === 'Pago' 
+            ? '<span class="badge bg-success">✓ ' + data.status + '</span>'
+            : '<span class="badge bg-warning">' + data.status + '</span>';
+        bodyHtml += `<p><strong>📊 Status:</strong> ${statusBadge}</p>`;
+    }
+    
+    if (data.card_name) {
+        bodyHtml += `<p><strong>💳 Cartão:</strong> ${data.card_name}</p>`;
+    }
+    
+    if (data.category) {
+        bodyHtml += `<p><strong>📂 Categoria:</strong> ${data.category}</p>`;
     }
     
     document.getElementById('eventModalBody').innerHTML = bodyHtml;
@@ -165,5 +399,15 @@ function showEventDetails(event) {
     
     modal.show();
 }
+
+// Animação CSS
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-5px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+`;
+document.head.appendChild(style);
 </script>
 {% endblock %}
