@@ -229,17 +229,29 @@ class Bill(db.Model):
         }
 
 class Account(db.Model):
-    """Modelo para Contas Gerais"""
+    """Modelo para Contas Gerais (Lançamentos)"""
     __tablename__ = 'accounts'
     
     id = db.Column(db.Integer, primary_key=True)
     description = db.Column(db.String(200), nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    type = db.Column(db.String(20), nullable=False)
+    type = db.Column(db.String(20), nullable=False)  # income, expense
     category = db.Column(db.String(50))
     date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     recurring = db.Column(db.Boolean, default=False)
+    
+    # NOVOS CAMPOS PARA CONSOLIDAÇÃO
+    consolidated = db.Column(db.Boolean, default=False)  # Se foi pago/recebido
+    consolidated_date = db.Column(db.DateTime)  # Quando foi consolidado
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    @property
+    def status(self):
+        if self.consolidated:
+            return 'Consolidado'
+        else:
+            return 'Pendente'
     
     def to_dict(self):
         return {
@@ -249,7 +261,10 @@ class Account(db.Model):
             'type': self.type,
             'category': self.category,
             'date': self.date.strftime('%Y-%m-%d'),
-            'recurring': self.recurring
+            'recurring': self.recurring,
+            'consolidated': self.consolidated,
+            'consolidated_date': self.consolidated_date.strftime('%Y-%m-%d') if self.consolidated_date else None,
+            'status': self.status
         }
 
 class Category(db.Model):
