@@ -2,6 +2,7 @@ from database import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
 from calendar import monthrange
+from dateutil.relativedelta import relativedelta
 
 class CreditCard(db.Model):
     """Modelo para Cartões de Crédito"""
@@ -22,15 +23,12 @@ class CreditCard(db.Model):
     
     def get_bill_for_month(self, month, year):
         """Calcula o valor da fatura para um mês/ano específico"""
-        # Determinar período da fatura
         closing_date = datetime(year, month, min(self.closing_day, monthrange(year, month)[1]))
         
-        # Período começa no fechamento do mês anterior
         prev_month = month - 1 if month > 1 else 12
         prev_year = year if month > 1 else year - 1
         start_date = datetime(prev_year, prev_month, min(self.closing_day, monthrange(prev_year, prev_month)[1]))
         
-        # Buscar todas as parcelas que vencem neste período
         total = db.session.query(func.sum(Installment.amount)).join(Transaction).filter(
             Transaction.card_id == self.id,
             Installment.due_date >= start_date,
@@ -151,11 +149,11 @@ class Invoice(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     card_id = db.Column(db.Integer, db.ForeignKey('credit_cards.id'), nullable=False)
-    month = db.Column(db.Integer, nullable=False)  # 1-12
-    year = db.Column(db.Integer, nullable=False)   # 2026, 2027...
+    month = db.Column(db.Integer, nullable=False)
+    year = db.Column(db.Integer, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     due_date = db.Column(db.DateTime, nullable=False)
-    status = db.Column(db.String(20), default='open')  # open, paid
+    status = db.Column(db.String(20), default='open')
     paid_date = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -163,7 +161,6 @@ class Invoice(db.Model):
         today = datetime.now()
         reference_date = datetime(self.year, self.month, 1)
         
-        # Determinar status visual
         if self.status == 'paid':
             status_label = 'PAGA'
         elif reference_date.year < today.year or (reference_date.year == today.year and reference_date.month < today.month):
@@ -238,13 +235,20 @@ class Account(db.Model):
     type = db.Column(db.String(20), nullable=False)  # income, expense
     category = db.Column(db.String(50))
     date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    recurring = db.Column(db.Boolean, default=False)
     
-    # NOVOS CAMPOS PARA CONSOLIDAÇÃO
-    consolidated = db.Column(db.Boolean, default=False)  # Se foi pago/recebido
-    consolidated_date = db.Column(db.DateTime)  # Quando foi consolidado
+    # SISTEMA DE RECORRÊNCIA APRIMORADO
+    recurring = db.Column(db.Boolean, default=False)  # Se é origem de recorrência
+    parent_id = db.Column(db.Integer, db.ForeignKey('accounts.id'))  # Conta pai (se foi gerada)
+    recurring_day = db.Column(db.Integer)  # Dia do mês (1-31)
+    
+    # CONSOLIDAÇÃO
+    consolidated = db.Column(db.Boolean, default=False)
+    consolidated_date = db.Column(db.DateTime)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relacionamentos
+    children = db.relationship('Account', backref=db.backref('parent', remote_side=[id]), lazy='dynamic')
     
     @property
     def status(self):
@@ -252,6 +256,60 @@ class Account(db.Model):
             return 'Consolidado'
         else:
             return 'Pendente'
+    
+    @property
+    def is_recurring_origin(self):
+        """Verifica se é a conta original que gera recorrências"""
+        return self.recurring and not self.parent_id
+    
+    @property
+    def is_recurring_child(self):
+        """Verifica se foi gerada automaticamente por recorrência"""
+        return self.parent_id is not None
+    
+    def generate_next_months(self, num_months=12):
+        """Gera lançamentos para os próximos N meses"""
+        if not self.recurring or self.parent_id:
+            return []
+        
+        generated = []
+        base_date = self.date
+        
+        for i in range(1, num_months + 1):
+            next_date = base_date + relativedelta(months=i)
+            
+            # Ajustar dia se necessário
+            day = self.recurring_day or base_date.day
+            max_day = monthrange(next_date.year, next_date.month)[1]
+            day = min(day, max_day)
+            
+            next_date = datetime(next_date.year, next_date.month, day)
+            
+            # Verificar se já existe
+            existing = Account.query.filter_by(
+                parent_id=self.id,
+                date=next_date
+            ).first()
+            
+            if not existing:
+                new_account = Account(
+                    description=self.description,
+                    amount=self.amount,
+                    type=self.type,
+                    category=self.category,
+                    date=next_date,
+                    recurring=False,
+                    parent_id=self.id,
+                    recurring_day=self.recurring_day,
+                    consolidated=False
+                )
+                db.session.add(new_account)
+                generated.append(new_account)
+        
+        if generated:
+            db.session.commit()
+        
+        return generated
     
     def to_dict(self):
         return {
@@ -262,9 +320,14 @@ class Account(db.Model):
             'category': self.category,
             'date': self.date.strftime('%Y-%m-%d'),
             'recurring': self.recurring,
+            'parent_id': self.parent_id,
+            'recurring_day': self.recurring_day,
             'consolidated': self.consolidated,
             'consolidated_date': self.consolidated_date.strftime('%Y-%m-%d') if self.consolidated_date else None,
-            'status': self.status
+            'status': self.status,
+            'is_recurring_origin': self.is_recurring_origin,
+            'is_recurring_child': self.is_recurring_child,
+            'children_count': self.children.count() if self.recurring else 0
         }
 
 class Category(db.Model):
@@ -289,14 +352,14 @@ class Notification(db.Model):
     __tablename__ = 'notifications'
     
     id = db.Column(db.Integer, primary_key=True)
-    type = db.Column(db.String(50), nullable=False)  # invoice_due, bill_due, limit_alert, etc
+    type = db.Column(db.String(50), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     message = db.Column(db.Text, nullable=False)
-    priority = db.Column(db.String(20), default='normal')  # low, normal, high, urgent
+    priority = db.Column(db.String(20), default='normal')
     read = db.Column(db.Boolean, default=False)
-    link = db.Column(db.String(200))  # Link para a página relevante
-    reference_id = db.Column(db.Integer)  # ID do item relacionado
-    reference_type = db.Column(db.String(50))  # invoice, bill, card
+    link = db.Column(db.String(200))
+    reference_id = db.Column(db.Integer)
+    reference_type = db.Column(db.String(50))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     read_at = db.Column(db.DateTime)
     
