@@ -1,6 +1,7 @@
 from database import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from calendar import monthrange
 
 class CreditCard(db.Model):
     """Modelo para Cartões de Crédito"""
@@ -17,26 +18,30 @@ class CreditCard(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     transactions = db.relationship('Transaction', backref='card', lazy=True, cascade='all, delete-orphan')
+    invoices = db.relationship('Invoice', backref='card', lazy=True, cascade='all, delete-orphan')
+    
+    def get_bill_for_month(self, month, year):
+        """Calcula o valor da fatura para um mês/ano específico"""
+        # Determinar período da fatura
+        closing_date = datetime(year, month, min(self.closing_day, monthrange(year, month)[1]))
+        
+        # Período começa no fechamento do mês anterior
+        prev_month = month - 1 if month > 1 else 12
+        prev_year = year if month > 1 else year - 1
+        start_date = datetime(prev_year, prev_month, min(self.closing_day, monthrange(prev_year, prev_month)[1]))
+        
+        # Buscar todas as parcelas que vencem neste período
+        total = db.session.query(func.sum(Installment.amount)).join(Transaction).filter(
+            Transaction.card_id == self.id,
+            Installment.due_date >= start_date,
+            Installment.due_date < closing_date
+        ).scalar() or 0.0
+        
+        return total
     
     def get_current_bill_amount(self):
         today = datetime.now()
-        if today.day >= self.closing_day:
-            start_date = datetime(today.year, today.month, self.closing_day)
-            next_month = today.month + 1 if today.month < 12 else 1
-            next_year = today.year if today.month < 12 else today.year + 1
-            end_date = datetime(next_year, next_month, self.closing_day)
-        else:
-            end_date = datetime(today.year, today.month, self.closing_day)
-            prev_month = today.month - 1 if today.month > 1 else 12
-            prev_year = today.year if today.month > 1 else today.year - 1
-            start_date = datetime(prev_year, prev_month, self.closing_day)
-        
-        total = db.session.query(func.sum(Transaction.amount)).filter(
-            Transaction.card_id == self.id,
-            Transaction.date >= start_date,
-            Transaction.date < end_date
-        ).scalar() or 0.0
-        return total
+        return self.get_bill_for_month(today.month, today.year)
     
     def get_available_limit(self):
         used = self.get_total_used()
@@ -137,6 +142,46 @@ class Installment(db.Model):
             'amount': self.amount,
             'due_date': self.due_date.strftime('%Y-%m-%d'),
             'paid': self.paid,
+            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None
+        }
+
+class Invoice(db.Model):
+    """Modelo para Faturas de Cartão"""
+    __tablename__ = 'invoices'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    card_id = db.Column(db.Integer, db.ForeignKey('credit_cards.id'), nullable=False)
+    month = db.Column(db.Integer, nullable=False)  # 1-12
+    year = db.Column(db.Integer, nullable=False)   # 2026, 2027...
+    amount = db.Column(db.Float, nullable=False)
+    due_date = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), default='open')  # open, paid
+    paid_date = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        today = datetime.now()
+        reference_date = datetime(self.year, self.month, 1)
+        
+        # Determinar status visual
+        if self.status == 'paid':
+            status_label = 'PAGA'
+        elif reference_date.year < today.year or (reference_date.year == today.year and reference_date.month < today.month):
+            status_label = 'ATRASADA'
+        elif reference_date.year == today.year and reference_date.month == today.month:
+            status_label = 'ATUAL'
+        else:
+            status_label = 'FUTURA'
+        
+        return {
+            'id': self.id,
+            'card_id': self.card_id,
+            'month': self.month,
+            'year': self.year,
+            'amount': self.amount,
+            'due_date': self.due_date.strftime('%Y-%m-%d'),
+            'status': self.status,
+            'status_label': status_label,
             'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None
         }
 
