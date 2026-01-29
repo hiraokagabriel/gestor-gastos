@@ -11,9 +11,10 @@ if (typeof monthNamesGlobal === 'undefined') {
         'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 }
 
-function updateTemporalNav() {
+async function updateTemporalNav() {
     const display = document.getElementById('temporalMonthDisplay');
     const alert = document.getElementById('temporalAlert');
+    const balanceSection = document.getElementById('projectedBalanceSection');
     
     if (display) {
         display.textContent = `${monthNamesGlobal[viewingMonth]}/${viewingYear}`;
@@ -26,6 +27,62 @@ function updateTemporalNav() {
         } else {
             alert.style.display = 'none';
         }
+    }
+    
+    // Carregar saldo projetado
+    if (balanceSection && (viewingMonth !== currentMonth || viewingYear !== currentYear)) {
+        await loadProjectedBalance();
+    } else if (balanceSection) {
+        balanceSection.style.display = 'none';
+    }
+}
+
+async function loadProjectedBalance() {
+    const balanceSection = document.getElementById('projectedBalanceSection');
+    if (!balanceSection) return;
+    
+    try {
+        const response = await fetch(`/invoices/api/projected-balance?month=${viewingMonth}&year=${viewingYear}`);
+        const data = await response.json();
+        
+        const isPositive = data.projected_balance >= 0;
+        const prevMonthName = viewingMonth === 1 ? 'Dezembro' : monthNamesGlobal[viewingMonth - 1];
+        
+        balanceSection.innerHTML = `
+            <div class="alert alert-info shadow-sm">
+                <h6 class="alert-heading">
+                    <i class="fas fa-calculator"></i> 
+                    Situação Financeira Projetada - ${monthNamesGlobal[viewingMonth]}/${viewingYear}
+                </h6>
+                <hr>
+                <div class="row">
+                    <div class="col-md-4">
+                        <strong>💵 Saldo Atual:</strong>
+                        <h4 class="text-primary">R$ ${data.current_balance.toFixed(2)}</h4>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>💸 A Pagar (até ${prevMonthName}):</strong>
+                        <h4 class="text-danger">R$ ${data.total_to_pay.toFixed(2)}</h4>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>📈 Saldo Projetado:</strong>
+                        <h4 class="text-${isPositive ? 'success' : 'danger'}">
+                            R$ ${data.projected_balance.toFixed(2)}
+                            <i class="fas fa-${isPositive ? 'arrow-up' : 'arrow-down'}"></i>
+                        </h4>
+                    </div>
+                </div>
+                <hr>
+                <small class="text-muted">
+                    <i class="fas fa-info-circle"></i> 
+                    <strong>Este é o saldo que você terá se pagar todas as faturas e boletos até ${prevMonthName}.</strong>
+                </small>
+            </div>
+        `;
+        balanceSection.style.display = 'block';
+    } catch (error) {
+        console.error('Erro ao carregar saldo projetado:', error);
+        balanceSection.style.display = 'none';
     }
 }
 
@@ -89,7 +146,7 @@ async function loadViewingDate() {
         const data = await response.json();
         viewingMonth = data.viewing_month;
         viewingYear = data.viewing_year;
-        updateTemporalNav();
+        await updateTemporalNav();
     } catch (error) {
         console.error('Erro ao carregar data:', error);
     }

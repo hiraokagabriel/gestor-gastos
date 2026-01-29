@@ -2,89 +2,166 @@
 
 {% block title %}Dashboard - Gestor de Gastos{% endblock %}
 
+{% block extra_css %}
+<style>
+/* Abas de Cartão */
+.card-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.card-tab {
+    padding: 12px 24px;
+    border: none;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 600;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+}
+
+.card-tab:hover {
+    background: rgba(255,255,255,0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.card-tab.active {
+    background: white;
+    color: #667eea;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    transform: translateY(-2px);
+}
+
+.card-tab i {
+    margin-right: 6px;
+}
+
+/* Animação suave ao trocar conteúdo */
+.dashboard-content {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Melhorar cards */
+.stat-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.2) !important;
+}
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="row mb-4">
+<div class="row mb-3">
     <div class="col">
         <h2><i class="fas fa-chart-line"></i> Dashboard Financeiro</h2>
         <p class="text-muted">Visão consolidada das suas finanças</p>
     </div>
 </div>
 
-<!-- Cards de Resumo -->
-<div class="row mb-4" id="summaryCards">
-    <!-- Cards serão carregados aqui -->
+<!-- Abas de Cartão -->
+<div class="card-tabs" id="cardTabs">
+    <button class="card-tab active" onclick="switchCardView('all')" data-card="all">
+        <i class="fas fa-th"></i> Total Geral
+    </button>
+    <!-- Outros cartões serão adicionados via JavaScript -->
 </div>
 
-<!-- NOVO: Previsor de Gastos -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card shadow-sm border-primary">
-            <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                <h5 class="mb-0">
-                    <i class="fas fa-crystal-ball"></i> Previsor de Gastos do Mês
-                    <span id="predictionMonthLabel" class="badge bg-light text-dark ms-2"></span>
-                </h5>
-            </div>
-            <div class="card-body">
-                <div id="predictionContent">
-                    <div class="text-center py-3">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Carregando...</span>
+<!-- Conteúdo Dinâmico -->
+<div class="dashboard-content" id="dashboardContent">
+    <!-- Cards de Resumo -->
+    <div class="row mb-4" id="summaryCards">
+        <!-- Cards serão carregados aqui -->
+    </div>
+
+    <!-- PREVISOR DE GASTOS -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm border-primary">
+                <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                    <h5 class="mb-0">
+                        <i class="fas fa-crystal-ball"></i> Previsor de Gastos do Mês
+                        <span id="predictionMonthLabel" class="badge bg-light text-dark ms-2"></span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="predictionContent">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Carregando...</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- Gráficos -->
-<div class="row mb-4">
-    <div class="col-lg-8">
-        <div class="card shadow-sm">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Tendência Mensal (Últimos 6 Meses)</h5>
+    <!-- Gráficos -->
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Tendência Mensal (Últimos 6 Meses)</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="trendChart" height="80"></canvas>
+                </div>
             </div>
-            <div class="card-body">
-                <canvas id="trendChart" height="80"></canvas>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-chart-pie"></i> Gastos por Categoria</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="categoryChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-lg-4">
-        <div class="card shadow-sm">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0"><i class="fas fa-chart-pie"></i> Gastos por Categoria</h5>
-            </div>
-            <div class="card-body">
-                <canvas id="categoryChart"></canvas>
+
+    <!-- Tabela de Cartões (só aparece em "Total Geral") -->
+    <div class="row mb-4" id="cardsTableRow">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-credit-card"></i> Resumo de Cartões</h5>
+                </div>
+                <div class="card-body">
+                    <div id="cardsTable"></div>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- Tabela de Cartões -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card shadow-sm">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><i class="fas fa-credit-card"></i> Resumo de Cartões</h5>
-            </div>
-            <div class="card-body">
-                <div id="cardsTable"></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Boletos Pendentes -->
-<div class="row">
-    <div class="col-12">
-        <div class="card shadow-sm">
-            <div class="card-header bg-warning">
-                <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Boletos Pendentes</h5>
-            </div>
-            <div class="card-body">
-                <div id="pendingBillsTable"></div>
+    <!-- Boletos Pendentes -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-warning">
+                    <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Boletos Pendentes</h5>
+                </div>
+                <div class="card-body">
+                    <div id="pendingBillsTable"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -95,16 +172,66 @@
 <script>
 let trendChart = null;
 let categoryChart = null;
+let currentCardFilter = 'all';
+let allCards = [];
 
 const monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+async function initDashboard() {
+    await loadCardTabs();
+    await loadDashboard();
+}
+
+async function loadCardTabs() {
+    try {
+        const response = await fetch('/cards/api/cards');
+        allCards = await response.json();
+        
+        const tabsContainer = document.getElementById('cardTabs');
+        
+        // Adicionar aba para cada cartão
+        allCards.forEach(card => {
+            const tab = document.createElement('button');
+            tab.className = 'card-tab';
+            tab.setAttribute('data-card', card.id);
+            tab.onclick = () => switchCardView(card.id);
+            tab.innerHTML = `
+                <i class="fas fa-credit-card"></i> ${card.name}
+                <small class="ms-1">(*${card.last_digits})</small>
+            `;
+            tabsContainer.appendChild(tab);
+        });
+    } catch (error) {
+        console.error('Erro ao carregar abas de cartões:', error);
+    }
+}
+
+function switchCardView(cardId) {
+    currentCardFilter = cardId;
+    
+    // Atualizar abas ativas
+    document.querySelectorAll('.card-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelector(`[data-card="${cardId}"]`).classList.add('active');
+    
+    // Mostrar/ocultar tabela de cartões
+    document.getElementById('cardsTableRow').style.display = 
+        cardId === 'all' ? 'block' : 'none';
+    
+    // Recarregar dados
+    loadDashboard();
+}
 
 async function loadDashboard() {
     await loadSummary();
     await loadPrediction();
     await loadTrendChart();
     await loadCategoryChart();
-    await loadCardsTable();
+    if (currentCardFilter === 'all') {
+        await loadCardsTable();
+    }
     await loadPendingBills();
 }
 
@@ -115,6 +242,27 @@ async function loadPrediction() {
         
         document.getElementById('predictionMonthLabel').textContent = 
             `${monthNames[data.viewing_month]}/${data.viewing_year}`;
+        
+        // Filtrar por cartão se necessário
+        let filteredData = data;
+        if (currentCardFilter !== 'all') {
+            filteredData = {
+                ...data,
+                breakdown: {
+                    ...data.breakdown,
+                    card_invoices: {
+                        items: data.breakdown.card_invoices.items.filter(item => item.card_id == currentCardFilter),
+                        total: data.breakdown.card_invoices.items
+                            .filter(item => item.card_id == currentCardFilter)
+                            .reduce((sum, item) => sum + item.amount, 0)
+                    }
+                },
+                total_predicted: data.breakdown.card_invoices.items
+                    .filter(item => item.card_id == currentCardFilter)
+                    .reduce((sum, item) => sum + item.amount, 0) + 
+                    (currentCardFilter === 'all' ? data.breakdown.bills.total + data.breakdown.recurring.total : 0)
+            };
+        }
         
         const isPositive = data.balance.predicted >= 0;
         const comparisonIcon = data.comparison.difference > 0 ? '▲' : 
@@ -128,7 +276,7 @@ async function loadPrediction() {
                 <div class="col-md-4">
                     <div class="text-center p-4 bg-light rounded">
                         <h6 class="text-muted mb-2">TOTAL PREVISTO</h6>
-                        <h2 class="display-4 fw-bold text-primary mb-2">R$ ${data.total_predicted.toFixed(2)}</h2>
+                        <h2 class="display-4 fw-bold text-primary mb-2">R$ ${filteredData.total_predicted.toFixed(2)}</h2>
                         <p class="mb-0">
                             <span class="badge bg-${comparisonColor}">
                                 ${comparisonIcon} ${Math.abs(data.comparison.difference_percent).toFixed(1)}% vs mês anterior
@@ -146,12 +294,13 @@ async function loadPrediction() {
                                 <div class="card-body text-center">
                                     <i class="fas fa-credit-card fa-2x text-danger mb-2"></i>
                                     <h6 class="text-muted">Faturas</h6>
-                                    <h4 class="fw-bold">R$ ${data.breakdown.card_invoices.total.toFixed(2)}</h4>
-                                    <small class="text-muted">${data.breakdown.card_invoices.items.length} cartões</small>
+                                    <h4 class="fw-bold">R$ ${filteredData.breakdown.card_invoices.total.toFixed(2)}</h4>
+                                    <small class="text-muted">${filteredData.breakdown.card_invoices.items.length} cartões</small>
                                 </div>
                             </div>
                         </div>
                         
+                        ${currentCardFilter === 'all' ? `
                         <!-- Boletos -->
                         <div class="col-md-4">
                             <div class="card h-100">
@@ -175,6 +324,7 @@ async function loadPrediction() {
                                 </div>
                             </div>
                         </div>
+                        ` : ''}
                     </div>
                 </div>
             </div>
@@ -187,7 +337,7 @@ async function loadPrediction() {
                         <div class="col">
                             <div class="progress" style="height: 30px;">
                                 <div class="progress-bar ${isPositive ? 'bg-success' : 'bg-danger'}" 
-                                     style="width: ${Math.abs(data.balance.predicted / (data.total_predicted || 1)) * 100}%">
+                                     style="width: ${Math.abs(data.balance.predicted / (filteredData.total_predicted || 1)) * 100}%">
                                     R$ ${data.balance.predicted.toFixed(2)}
                                 </div>
                             </div>
@@ -200,7 +350,7 @@ async function loadPrediction() {
                     </div>
                     <small class="text-muted">
                         Receitas previstas: R$ ${data.income.total.toFixed(2)} | 
-                        Despesas previstas: R$ ${data.total_predicted.toFixed(2)}
+                        Despesas previstas: R$ ${filteredData.total_predicted.toFixed(2)}
                     </small>
                 </div>
             </div>
@@ -213,14 +363,15 @@ async function loadPrediction() {
                     </button>
                     <div class="collapse mt-3" id="predictionDetails">
                         <div class="row">
-                            <div class="col-md-4">
+                            <div class="col-md-${currentCardFilter === 'all' ? '4' : '12'}">
                                 <h6 class="fw-bold">Faturas por Cartão</h6>
                                 <ul class="list-unstyled">
-                                    ${data.breakdown.card_invoices.items.map(item => 
+                                    ${filteredData.breakdown.card_invoices.items.map(item => 
                                         `<li><i class="fas fa-credit-card text-danger"></i> ${item.card_name}: R$ ${item.amount.toFixed(2)}</li>`
                                     ).join('')}
                                 </ul>
                             </div>
+                            ${currentCardFilter === 'all' ? `
                             <div class="col-md-4">
                                 <h6 class="fw-bold">Boletos Pendentes</h6>
                                 <ul class="list-unstyled">
@@ -238,6 +389,7 @@ async function loadPrediction() {
                                     ).join('')}
                                 </ul>
                             </div>
+                            ` : ''}
                         </div>
                     </div>
                 </div>
@@ -254,13 +406,17 @@ async function loadPrediction() {
 
 async function loadSummary() {
     try {
-        const response = await fetch('/dashboard/api/summary');
+        const url = currentCardFilter === 'all' 
+            ? '/dashboard/api/summary'
+            : `/dashboard/api/summary?card_id=${currentCardFilter}`;
+        
+        const response = await fetch(url);
         const data = await response.json();
         
         const summaryCards = document.getElementById('summaryCards');
         summaryCards.innerHTML = `
             <div class="col-md-3">
-                <div class="card text-white bg-primary shadow-sm">
+                <div class="card text-white bg-primary shadow-sm stat-card">
                     <div class="card-body">
                         <h6 class="card-title"><i class="fas fa-credit-card"></i> Limite Total</h6>
                         <h3 class="mb-0">R$ ${data.cards.total_limit.toFixed(2)}</h3>
@@ -269,7 +425,7 @@ async function loadSummary() {
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card text-white bg-success shadow-sm">
+                <div class="card text-white bg-success shadow-sm stat-card">
                     <div class="card-body">
                         <h6 class="card-title"><i class="fas fa-check-circle"></i> Limite Disponível</h6>
                         <h3 class="mb-0">R$ ${data.cards.total_available.toFixed(2)}</h3>
@@ -277,7 +433,7 @@ async function loadSummary() {
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card text-white bg-warning shadow-sm">
+                <div class="card text-white bg-warning shadow-sm stat-card">
                     <div class="card-body">
                         <h6 class="card-title"><i class="fas fa-exclamation-circle"></i> Boletos Pendentes</h6>
                         <h3 class="mb-0">${data.bills.pending_count}</h3>
@@ -286,7 +442,7 @@ async function loadSummary() {
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card text-white bg-${data.monthly.balance >= 0 ? 'success' : 'danger'} shadow-sm">
+                <div class="card text-white bg-${data.monthly.balance >= 0 ? 'success' : 'danger'} shadow-sm stat-card">
                     <div class="card-body">
                         <h6 class="card-title"><i class="fas fa-wallet"></i> Saldo do Mês</h6>
                         <h3 class="mb-0">R$ ${data.monthly.balance.toFixed(2)}</h3>
@@ -302,7 +458,11 @@ async function loadSummary() {
 
 async function loadTrendChart() {
     try {
-        const response = await fetch('/dashboard/api/monthly-trend');
+        const url = currentCardFilter === 'all' 
+            ? '/dashboard/api/monthly-trend'
+            : `/dashboard/api/monthly-trend?card_id=${currentCardFilter}`;
+        
+        const response = await fetch(url);
         const data = await response.json();
         
         const ctx = document.getElementById('trendChart').getContext('2d');
@@ -366,7 +526,11 @@ async function loadTrendChart() {
 
 async function loadCategoryChart() {
     try {
-        const response = await fetch('/dashboard/api/expenses-by-category');
+        const url = currentCardFilter === 'all' 
+            ? '/dashboard/api/expenses-by-category'
+            : `/dashboard/api/expenses-by-category?card_id=${currentCardFilter}`;
+        
+        const response = await fetch(url);
         const data = await response.json();
         
         if (data.length === 0) {
@@ -438,7 +602,7 @@ async function loadCardsTable() {
                         ${cards.map(card => {
                             const usagePercent = (card.total_used / card.limit_total * 100).toFixed(1);
                             return `
-                                <tr>
+                                <tr style="cursor: pointer;" onclick="switchCardView(${card.id})">
                                     <td><strong>${card.name}</strong><br><small class="text-muted">${card.flag} *${card.last_digits}</small></td>
                                     <td>R$ ${card.limit_total.toFixed(2)}</td>
                                     <td class="text-danger">R$ ${card.total_used.toFixed(2)}</td>
@@ -533,6 +697,6 @@ async function loadPendingBills() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', loadDashboard);
+document.addEventListener('DOMContentLoaded', initDashboard);
 </script>
 {% endblock %}
