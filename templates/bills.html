@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+
+{% block title %}Boletos - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="fas fa-file-invoice"></i> Meus Boletos</h2>
+    </div>
+    <div class="col text-end">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#billModal" onclick="openBillModal()">
+            <i class="fas fa-plus"></i> Novo Boleto
+        </button>
+    </div>
+</div>
+
+<!-- Filtros -->
+<div class="row mb-4">
+    <div class="col">
+        <div class="btn-group" role="group">
+            <button type="button" class="btn btn-outline-primary active" onclick="filterBills('all')">Todos</button>
+            <button type="button" class="btn btn-outline-warning" onclick="filterBills('pending')">Pendentes</button>
+            <button type="button" class="btn btn-outline-danger" onclick="filterBills('overdue')">Vencidos</button>
+            <button type="button" class="btn btn-outline-success" onclick="filterBills('paid')">Pagos</button>
+        </div>
+    </div>
+</div>
+
+<div id="billsList">
+    <!-- Boletos serão carregados aqui -->
+</div>
+
+<!-- Modal para Adicionar/Editar Boleto -->
+<div class="modal fade" id="billModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="billModalTitle">Novo Boleto</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="billForm">
+                    <input type="hidden" id="billId">
+                    <div class="mb-3">
+                        <label for="billDescription" class="form-label">Descrição *</label>
+                        <input type="text" class="form-control" id="billDescription" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="billAmount" class="form-label">Valor (R$) *</label>
+                            <input type="number" class="form-control" id="billAmount" step="0.01" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="billDueDate" class="form-label">Vencimento *</label>
+                            <input type="date" class="form-control" id="billDueDate" required data-no-default>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="billCategory" class="form-label">Categoria</label>
+                        <input type="text" class="form-control" id="billCategory" list="billCategories">
+                        <datalist id="billCategories">
+                            <option value="Contas de Consumo">
+                            <option value="Aluguel">
+                            <option value="Condomínio">
+                            <option value="Internet">
+                            <option value="Telefone">
+                            <option value="Água">
+                            <option value="Luz">
+                            <option value="Gás">
+                            <option value="Assinaturas">
+                            <option value="Impostos">
+                            <option value="Outros">
+                        </datalist>
+                    </div>
+                    <div class="mb-3">
+                        <label for="billBarcode" class="form-label">Código de Barras</label>
+                        <input type="text" class="form-control" id="billBarcode" placeholder="Digite ou cole o código de barras">
+                        <small class="text-muted">Opcional - para facilitar a localização do boleto</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveBill()">Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentFilter = 'all';
+
+async function loadBills(filter = null) {
+    if (filter) currentFilter = filter;
+    
+    try {
+        const url = currentFilter === 'all' ? '/bills/api/bills' : `/bills/api/bills?status=${currentFilter}`;
+        const response = await fetch(url);
+        const bills = await response.json();
+        
+        const billsList = document.getElementById('billsList');
+        
+        if (bills.length === 0) {
+            billsList.innerHTML = `
+                <div class="alert alert-info text-center">
+                    <i class="fas fa-info-circle"></i>
+                    Nenhum boleto encontrado
+                </div>
+            `;
+            return;
+        }
+        
+        billsList.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Descrição</th>
+                            <th>Categoria</th>
+                            <th>Valor</th>
+                            <th>Vencimento</th>
+                            <th>Status</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${bills.map(bill => {
+                            let statusBadge = '';
+                            let rowClass = '';
+                            
+                            if (bill.status === 'Pago') {
+                                statusBadge = '<span class="badge bg-success"><i class="fas fa-check"></i> Pago</span>';
+                            } else if (bill.status === 'Vencido') {
+                                statusBadge = '<span class="badge bg-danger"><i class="fas fa-exclamation-triangle"></i> Vencido</span>';
+                                rowClass = 'table-danger';
+                            } else {
+                                statusBadge = '<span class="badge bg-warning"><i class="fas fa-clock"></i> Pendente</span>';
+                            }
+                            
+                            const dueDate = new Date(bill.due_date);
+                            const today = new Date();
+                            const diffTime = dueDate - today;
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            
+                            let daysInfo = '';
+                            if (bill.status === 'Pendente' && diffDays <= 5 && diffDays >= 0) {
+                                daysInfo = `<br><small class="text-warning">Vence em ${diffDays} dia${diffDays !== 1 ? 's' : ''}</small>`;
+                            }
+                            
+                            return `
+                                <tr class="${rowClass}">
+                                    <td>
+                                        <strong>${bill.description}</strong>
+                                        ${daysInfo}
+                                    </td>
+                                    <td><span class="badge bg-info">${bill.category || 'Sem categoria'}</span></td>
+                                    <td class="fw-bold">R$ ${bill.amount.toFixed(2)}</td>
+                                    <td>${dueDate.toLocaleDateString('pt-BR')}</td>
+                                    <td>${statusBadge}</td>
+                                    <td>
+                                        ${!bill.paid ? `
+                                            <button class="btn btn-sm btn-success" onclick="payBill(${bill.id})" title="Marcar como Pago">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-primary" onclick="editBill(${bill.id})" title="Editar">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                        ` : ''}
+                                        <button class="btn btn-sm btn-danger" onclick="deleteBill(${bill.id})" title="Excluir">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+    } catch (error) {
+        console.error('Erro ao carregar boletos:', error);
+        showToast('Erro ao carregar boletos', 'error');
+    }
+}
+
+function filterBills(filter) {
+    document.querySelectorAll('.btn-group button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    loadBills(filter);
+}
+
+function openBillModal() {
+    document.getElementById('billForm').reset();
+    document.getElementById('billId').value = '';
+    document.getElementById('billModalTitle').textContent = 'Novo Boleto';
+}
+
+async function editBill(billId) {
+    try {
+        const response = await fetch(`/bills/api/bills/${billId}`);
+        const bill = await response.json();
+        
+        document.getElementById('billId').value = bill.id;
+        document.getElementById('billDescription').value = bill.description;
+        document.getElementById('billAmount').value = bill.amount;
+        document.getElementById('billDueDate').value = bill.due_date;
+        document.getElementById('billCategory').value = bill.category || '';
+        document.getElementById('billBarcode').value = bill.barcode || '';
+        
+        document.getElementById('billModalTitle').textContent = 'Editar Boleto';
+        
+        new bootstrap.Modal(document.getElementById('billModal')).show();
+    } catch (error) {
+        console.error('Erro ao carregar boleto:', error);
+        showToast('Erro ao carregar boleto', 'error');
+    }
+}
+
+async function saveBill() {
+    if (!validateForm('billForm')) return;
+    
+    const billId = document.getElementById('billId').value;
+    const data = {
+        description: document.getElementById('billDescription').value,
+        amount: document.getElementById('billAmount').value,
+        due_date: document.getElementById('billDueDate').value,
+        category: document.getElementById('billCategory').value,
+        barcode: document.getElementById('billBarcode').value
+    };
+    
+    try {
+        const url = billId ? `/bills/api/bills/${billId}` : '/bills/api/bills';
+        const method = billId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('billModal')).hide();
+            showToast(billId ? 'Boleto atualizado!' : 'Boleto cadastrado!', 'success');
+            loadBills();
+        }
+    } catch (error) {
+        console.error('Erro ao salvar boleto:', error);
+        showToast('Erro ao salvar boleto', 'error');
+    }
+}
+
+async function payBill(billId) {
+    if (!confirm('Confirma o pagamento deste boleto?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/bills/api/bills/${billId}/pay`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showToast('Boleto marcado como pago!', 'success');
+            loadBills();
+        }
+    } catch (error) {
+        console.error('Erro ao pagar boleto:', error);
+        showToast('Erro ao processar pagamento', 'error');
+    }
+}
+
+async function deleteBill(billId) {
+    if (!confirm('Tem certeza que deseja excluir este boleto?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/bills/api/bills/${billId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showToast('Boleto excluído com sucesso!', 'success');
+            loadBills();
+        }
+    } catch (error) {
+        console.error('Erro ao deletar boleto:', error);
+        showToast('Erro ao deletar boleto', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => loadBills());
+</script>
+{% endblock %}

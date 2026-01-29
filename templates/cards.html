@@ -1,0 +1,458 @@
+{% extends "base.html" %}
+
+{% block title %}Cartões - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2><i class="fas fa-credit-card"></i> Meus Cartões</h2>
+    </div>
+    <div class="col text-end">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#cardModal" onclick="openCardModal()">
+            <i class="fas fa-plus"></i> Novo Cartão
+        </button>
+    </div>
+</div>
+
+<div id="cardsList" class="row g-4">
+    <!-- Cards serão carregados aqui -->
+</div>
+
+<!-- Modal para Adicionar/Editar Cartão -->
+<div class="modal fade" id="cardModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cardModalTitle">Novo Cartão</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="cardForm">
+                    <input type="hidden" id="cardId">
+                    <div class="mb-3">
+                        <label for="cardName" class="form-label">Nome do Cartão *</label>
+                        <input type="text" class="form-control" id="cardName" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="cardFlag" class="form-label">Bandeira</label>
+                            <select class="form-select" id="cardFlag">
+                                <option value="Visa">Visa</option>
+                                <option value="Mastercard">Mastercard</option>
+                                <option value="Elo">Elo</option>
+                                <option value="American Express">American Express</option>
+                                <option value="Hipercard">Hipercard</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="cardDigits" class="form-label">Últimos 4 dígitos</label>
+                            <input type="text" class="form-control" id="cardDigits" maxlength="4" pattern="[0-9]{4}">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="cardLimit" class="form-label">Limite Total (R$) *</label>
+                        <input type="number" class="form-control" id="cardLimit" step="0.01" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="cardClosingDay" class="form-label">Dia do Fechamento *</label>
+                            <input type="number" class="form-control" id="cardClosingDay" min="1" max="31" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="cardDueDay" class="form-label">Dia do Vencimento *</label>
+                            <input type="number" class="form-control" id="cardDueDay" min="1" max="31" required>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveCard()">Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Transações -->
+<div class="modal fade" id="transactionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Nova Compra</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="transactionForm">
+                    <input type="hidden" id="transactionCardId">
+                    <div class="mb-3">
+                        <label for="transactionDescription" class="form-label">Descrição *</label>
+                        <input type="text" class="form-control" id="transactionDescription" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="transactionAmount" class="form-label">Valor (R$) *</label>
+                            <input type="number" class="form-control" id="transactionAmount" step="0.01" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="transactionDate" class="form-label">Data *</label>
+                            <input type="date" class="form-control" id="transactionDate" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="transactionCategory" class="form-label">Categoria</label>
+                            <input type="text" class="form-control" id="transactionCategory" list="categories">
+                            <datalist id="categories">
+                                <option value="Alimentação">
+                                <option value="Transporte">
+                                <option value="Lazer">
+                                <option value="Saúde">
+                                <option value="Educação">
+                                <option value="Compras">
+                                <option value="Serviços">
+                                <option value="Outros">
+                            </datalist>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="transactionInstallments" class="form-label">Parcelas *</label>
+                            <input type="number" class="form-control" id="transactionInstallments" min="1" value="1" required>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveTransaction()">Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Ver Transações -->
+<div class="modal fade" id="viewTransactionsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="viewTransactionsTitle">Transações</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="transactionsList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentCardId = null;
+
+async function loadCards() {
+    try {
+        const response = await fetch('/cards/api/cards');
+        const cards = await response.json();
+        
+        const cardsList = document.getElementById('cardsList');
+        
+        if (cards.length === 0) {
+            cardsList.innerHTML = `
+                <div class="col-12 text-center text-muted py-5">
+                    <i class="fas fa-credit-card fa-3x mb-3"></i>
+                    <p>Nenhum cartão cadastrado ainda</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#cardModal" onclick="openCardModal()">
+                        <i class="fas fa-plus"></i> Cadastrar Primeiro Cartão
+                    </button>
+                </div>
+            `;
+            return;
+        }
+        
+        cardsList.innerHTML = cards.map(card => {
+            const usagePercent = card.limit_total > 0 ? (card.total_used / card.limit_total * 100).toFixed(1) : 0;
+            const availablePercent = 100 - usagePercent;
+            
+            return `
+                <div class="col-md-6 col-lg-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <div>
+                                    <h5 class="card-title mb-1">${card.name}</h5>
+                                    <span class="badge bg-secondary">${card.flag} **** ${card.last_digits}</span>
+                                </div>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-link text-secondary" data-bs-toggle="dropdown">
+                                        <i class="fas fa-ellipsis-v"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        <li><a class="dropdown-item" href="#" onclick="editCard(${card.id}); return false;">
+                                            <i class="fas fa-edit"></i> Editar
+                                        </a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-danger" href="#" onclick="deleteCard(${card.id}); return false;">
+                                            <i class="fas fa-trash"></i> Excluir
+                                        </a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <small>Limite Total</small>
+                                    <small class="fw-bold">R$ ${card.limit_total.toFixed(2)}</small>
+                                </div>
+                                <div class="progress mb-2" style="height: 20px;">
+                                    <div class="progress-bar ${usagePercent > 80 ? 'bg-danger' : usagePercent > 50 ? 'bg-warning' : 'bg-success'}" 
+                                         style="width: ${usagePercent}%" 
+                                         title="${usagePercent}% utilizado">
+                                        ${usagePercent}%
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between small">
+                                    <span class="text-danger">Usado: R$ ${card.total_used.toFixed(2)}</span>
+                                    <span class="text-success">Disponível: R$ ${card.limit_available.toFixed(2)}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3 p-2 bg-light rounded">
+                                <div class="d-flex justify-content-between">
+                                    <small class="text-muted">Fatura Atual</small>
+                                    <small class="fw-bold text-primary">R$ ${card.current_bill.toFixed(2)}</small>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="row text-center small">
+                                    <div class="col-6">
+                                        <div class="text-muted">Fechamento</div>
+                                        <div class="fw-bold">Dia ${card.closing_day}</div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="text-muted">Vencimento</div>
+                                        <div class="fw-bold">Dia ${card.due_day}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-primary btn-sm" onclick="openTransactionModal(${card.id})">
+                                    <i class="fas fa-plus"></i> Nova Compra
+                                </button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="viewTransactions(${card.id}, '${card.name}')">
+                                    <i class="fas fa-list"></i> Ver Transações
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+    } catch (error) {
+        console.error('Erro ao carregar cartões:', error);
+        showToast('Erro ao carregar cartões', 'error');
+    }
+}
+
+function openCardModal() {
+    document.getElementById('cardForm').reset();
+    document.getElementById('cardId').value = '';
+    document.getElementById('cardModalTitle').textContent = 'Novo Cartão';
+    currentCardId = null;
+}
+
+async function editCard(cardId) {
+    try {
+        const response = await fetch(`/cards/api/cards/${cardId}`);
+        const card = await response.json();
+        
+        document.getElementById('cardId').value = card.id;
+        document.getElementById('cardName').value = card.name;
+        document.getElementById('cardFlag').value = card.flag;
+        document.getElementById('cardDigits').value = card.last_digits;
+        document.getElementById('cardLimit').value = card.limit_total;
+        document.getElementById('cardClosingDay').value = card.closing_day;
+        document.getElementById('cardDueDay').value = card.due_day;
+        
+        document.getElementById('cardModalTitle').textContent = 'Editar Cartão';
+        currentCardId = cardId;
+        
+        new bootstrap.Modal(document.getElementById('cardModal')).show();
+    } catch (error) {
+        console.error('Erro ao carregar cartão:', error);
+        showToast('Erro ao carregar cartão', 'error');
+    }
+}
+
+async function saveCard() {
+    if (!validateForm('cardForm')) return;
+    
+    const cardId = document.getElementById('cardId').value;
+    const data = {
+        name: document.getElementById('cardName').value,
+        flag: document.getElementById('cardFlag').value,
+        last_digits: document.getElementById('cardDigits').value,
+        limit_total: document.getElementById('cardLimit').value,
+        closing_day: document.getElementById('cardClosingDay').value,
+        due_day: document.getElementById('cardDueDay').value
+    };
+    
+    try {
+        const url = cardId ? `/cards/api/cards/${cardId}` : '/cards/api/cards';
+        const method = cardId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('cardModal')).hide();
+            showToast(cardId ? 'Cartão atualizado!' : 'Cartão cadastrado!', 'success');
+            loadCards();
+        }
+    } catch (error) {
+        console.error('Erro ao salvar cartão:', error);
+        showToast('Erro ao salvar cartão', 'error');
+    }
+}
+
+async function deleteCard(cardId) {
+    if (!confirm('Tem certeza que deseja excluir este cartão? Todas as transações serão perdidas.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/cards/api/cards/${cardId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showToast('Cartão excluído com sucesso!', 'success');
+            loadCards();
+        }
+    } catch (error) {
+        console.error('Erro ao deletar cartão:', error);
+        showToast('Erro ao deletar cartão', 'error');
+    }
+}
+
+function openTransactionModal(cardId) {
+    document.getElementById('transactionForm').reset();
+    document.getElementById('transactionCardId').value = cardId;
+    document.getElementById('transactionDate').valueAsDate = new Date();
+    new bootstrap.Modal(document.getElementById('transactionModal')).show();
+}
+
+async function saveTransaction() {
+    if (!validateForm('transactionForm')) return;
+    
+    const data = {
+        card_id: document.getElementById('transactionCardId').value,
+        description: document.getElementById('transactionDescription').value,
+        amount: document.getElementById('transactionAmount').value,
+        date: document.getElementById('transactionDate').value,
+        category: document.getElementById('transactionCategory').value,
+        installments_total: document.getElementById('transactionInstallments').value
+    };
+    
+    try {
+        const response = await fetch('/cards/api/transactions', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('transactionModal')).hide();
+            showToast('Compra registrada com sucesso!', 'success');
+            loadCards();
+        }
+    } catch (error) {
+        console.error('Erro ao salvar transação:', error);
+        showToast('Erro ao salvar transação', 'error');
+    }
+}
+
+async function viewTransactions(cardId, cardName) {
+    try {
+        const response = await fetch(`/cards/api/cards/${cardId}/transactions`);
+        const transactions = await response.json();
+        
+        document.getElementById('viewTransactionsTitle').textContent = `Transações - ${cardName}`;
+        
+        const transactionsList = document.getElementById('transactionsList');
+        
+        if (transactions.length === 0) {
+            transactionsList.innerHTML = '<p class="text-center text-muted py-4">Nenhuma transação encontrada</p>';
+            new bootstrap.Modal(document.getElementById('viewTransactionsModal')).show();
+            return;
+        }
+        
+        transactionsList.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Descrição</th>
+                            <th>Categoria</th>
+                            <th>Valor Total</th>
+                            <th>Parcelas</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${transactions.map(t => `
+                            <tr>
+                                <td>${new Date(t.date).toLocaleDateString('pt-BR')}</td>
+                                <td>${t.description}</td>
+                                <td><span class="badge bg-info">${t.category || 'Sem categoria'}</span></td>
+                                <td class="fw-bold text-primary">R$ ${t.amount.toFixed(2)}</td>
+                                <td>${t.installments_total}x de R$ ${(t.amount / t.installments_total).toFixed(2)}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteTransaction(${t.id}, ${cardId}, '${cardName}')" title="Excluir">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        new bootstrap.Modal(document.getElementById('viewTransactionsModal')).show();
+    } catch (error) {
+        console.error('Erro ao carregar transações:', error);
+        showToast('Erro ao carregar transações', 'error');
+    }
+}
+
+async function deleteTransaction(transactionId, cardId, cardName) {
+    if (!confirm('Tem certeza que deseja excluir esta transação?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/cards/api/transactions/${transactionId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showToast('Transação excluída!', 'success');
+            viewTransactions(cardId, cardName);
+            loadCards();
+        }
+    } catch (error) {
+        console.error('Erro ao deletar transação:', error);
+        showToast('Erro ao deletar transação', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadCards);
+</script>
+{% endblock %}
