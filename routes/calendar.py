@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify, render_template
 from models import Invoice, Bill, CreditCard, Installment, Transaction, Account
 from database import db
-from datetime import datetime, timedelta
+from datetime import datetime
 from calendar import monthrange
+from dateutil.relativedelta import relativedelta
 import traceback
 
 calendar_bp = Blueprint('calendar', __name__, url_prefix='/calendar')
@@ -12,31 +13,105 @@ def index():
     """Página do calendário"""
     return render_template('calendar.html')
 
+
+def _month_start(d: datetime) -> datetime:
+    return datetime(d.year, d.month, 1)
+
+
+def _ensure_recurring_materialized_for_range(start_date: datetime, end_date: datetime) -> int:
+    """Materializa instâncias mensais (filhos) para todas as origens recorrentes dentro do range.
+
+    Faz commit apenas se criar algo. Mantém o calendário alinhado com a aba de contas.
+    """
+    origins = Account.query.filter(
+        Account.recurring == True,
+        Account.parent_id.is_(None)
+    ).all()
+
+    if not origins:
+        return 0
+
+    created = 0
+    current = _month_start(start_date)
+    end_month = _month_start(end_date)
+
+    while current <= end_month:
+        year = current.year
+        month = current.month
+
+        for origin in origins:
+            if not origin.date:
+                continue
+
+            origin_ym = (origin.date.year, origin.date.month)
+            target_ym = (year, month)
+            if target_ym < origin_ym:
+                continue
+
+            # Se a origem já é do mês/ano, não cria filho
+            if origin.date.year == year and origin.date.month == month:
+                continue
+
+            day = origin.recurring_day or origin.date.day
+            max_day = monthrange(year, month)[1]
+            day = min(day, max_day)
+            target_date = datetime(year, month, day)
+
+            exists = Account.query.filter(
+                Account.parent_id == origin.id,
+                db.extract('year', Account.date) == year,
+                db.extract('month', Account.date) == month
+            ).first()
+
+            if exists:
+                continue
+
+            child = Account(
+                description=origin.description,
+                amount=origin.amount,
+                type=origin.type,
+                category=origin.category,
+                date=target_date,
+                recurring=False,
+                parent_id=origin.id,
+                recurring_day=origin.recurring_day,
+                consolidated=False
+            )
+            db.session.add(child)
+            created += 1
+
+        current = current + relativedelta(months=1)
+
+    if created:
+        db.session.commit()
+
+    return created
+
+
 @calendar_bp.route('/api/events', methods=['GET'])
 def get_events():
     """Retorna eventos para o calendário"""
     try:
         start_str = request.args.get('start')
         end_str = request.args.get('end')
-        
+
         if not start_str or not end_str:
             return jsonify({'error': 'Parâmetros start e end são obrigatórios'}), 400
-        
-        # Remover timezone se presente
+
         start_str = start_str.split('T')[0] if 'T' in start_str else start_str
         end_str = end_str.split('T')[0] if 'T' in end_str else end_str
-        
+
         start_date = datetime.strptime(start_str, '%Y-%m-%d')
         end_date = datetime.strptime(end_str, '%Y-%m-%d')
-        
+
         events = []
-        
+
         # 1. Faturas de cartões
         invoices = Invoice.query.filter(
             Invoice.due_date >= start_date,
             Invoice.due_date <= end_date
         ).all()
-        
+
         for invoice in invoices:
             try:
                 is_paid = invoice.status == 'paid'
@@ -62,13 +137,13 @@ def get_events():
                 })
             except Exception as e:
                 print(f"Erro ao processar fatura {invoice.id}: {str(e)}")
-        
+
         # 2. Boletos
         bills = Bill.query.filter(
             Bill.due_date >= start_date,
             Bill.due_date <= end_date
         ).all()
-        
+
         for bill in bills:
             try:
                 is_paid = bill.paid
@@ -94,130 +169,67 @@ def get_events():
                 })
             except Exception as e:
                 print(f"Erro ao processar boleto {bill.id}: {str(e)}")
-        
-        # 3. Despesas Recorrentes
-        recurring_expenses = Account.query.filter(
-            Account.recurring == True,
-            Account.type == 'expense'
+
+        # 3. Materializar recorrências no range e listar lançamentos reais
+        _ensure_recurring_materialized_for_range(start_date, end_date)
+
+        accounts = Account.query.filter(
+            Account.date >= start_date,
+            Account.date <= end_date
         ).all()
-        
-        for expense in recurring_expenses:
+
+        for acc in accounts:
             try:
-                # Pular se não tiver data
-                if not expense.date:
-                    print(f"Despesa recorrente {expense.id} sem data - pulando")
-                    continue
-                
-                # Gerar eventos recorrentes para cada mês no range
-                current_date = start_date
-                while current_date <= end_date:
-                    day = expense.date.day
-                    year = current_date.year
-                    month = current_date.month
-                    
-                    # Ajustar dia se exceder o mês
-                    max_day = monthrange(year, month)[1]
-                    day = min(day, max_day)
-                    
-                    event_date = datetime(year, month, day)
-                    
-                    if start_date <= event_date <= end_date:
-                        events.append({
-                            'id': f'recurring-expense-{expense.id}-{year}-{month}',
-                            'title': f'🔁 {expense.description}',
-                            'start': event_date.strftime('%Y-%m-%d'),
-                            'backgroundColor': '#6f42c1',
-                            'borderColor': '#6f42c1',
-                            'textColor': '#ffffff',
-                            'classNames': ['event-recurring'],
-                            'extendedProps': {
-                                'type': 'recurring_expense',
-                                'icon': '🔁',
-                                'typeLabel': 'Despesa Recorrente',
-                                'amount': float(expense.amount),
-                                'description': expense.description,
-                                'status': 'Recorrente',
-                                'link': '/accounts',
-                                'reference_id': expense.id,
-                                'category': expense.category or 'Sem categoria'
-                            }
-                        })
-                    
-                    # Avançar para o próximo mês
-                    if month == 12:
-                        month = 1
-                        year += 1
-                    else:
-                        month += 1
-                    current_date = datetime(year, month, 1)
+                is_income = acc.type == 'income'
+                is_consolidated = bool(acc.consolidated)
+
+                # Cor base: consolidado verde; pendente amarelo
+                bg = '#28a745' if is_consolidated else '#ffc107'
+                border = bg
+                text = '#ffffff' if is_consolidated else '#000000'
+
+                # Diferenciar recorrência com borda roxa/rosa (sem mudar muito)
+                if acc.is_recurring_origin:
+                    border = '#6f42c1'
+                elif acc.is_recurring_child:
+                    border = '#e83e8c'
+
+                icon = '💵' if is_income else '💸'
+                title = f"{icon} {acc.description}"
+
+                events.append({
+                    'id': f'account-{acc.id}',
+                    'title': title,
+                    'start': acc.date.strftime('%Y-%m-%d'),
+                    'backgroundColor': bg,
+                    'borderColor': border,
+                    'textColor': text,
+                    'classNames': ['event-account'],
+                    'extendedProps': {
+                        'type': 'account',
+                        'icon': icon,
+                        'typeLabel': 'Lançamento',
+                        'amount': float(acc.amount),
+                        'description': acc.description,
+                        'status': acc.status,
+                        'link': '/accounts',
+                        'reference_id': acc.id,
+                        'category': acc.category or 'Sem categoria',
+                        'is_recurring_origin': acc.is_recurring_origin,
+                        'is_recurring_child': acc.is_recurring_child
+                    }
+                })
             except Exception as e:
-                print(f"Erro ao processar despesa recorrente {expense.id}: {str(e)}")
-        
-        # 4. Receitas Recorrentes
-        recurring_incomes = Account.query.filter(
-            Account.recurring == True,
-            Account.type == 'income'
-        ).all()
-        
-        for income in recurring_incomes:
-            try:
-                # Pular se não tiver data
-                if not income.date:
-                    print(f"Receita recorrente {income.id} sem data - pulando")
-                    continue
-                
-                # Gerar eventos recorrentes para cada mês no range
-                current_date = start_date
-                while current_date <= end_date:
-                    day = income.date.day
-                    year = current_date.year
-                    month = current_date.month
-                    
-                    max_day = monthrange(year, month)[1]
-                    day = min(day, max_day)
-                    
-                    event_date = datetime(year, month, day)
-                    
-                    if start_date <= event_date <= end_date:
-                        events.append({
-                            'id': f'recurring-income-{income.id}-{year}-{month}',
-                            'title': f'💵 {income.description}',
-                            'start': event_date.strftime('%Y-%m-%d'),
-                            'backgroundColor': '#20c997',
-                            'borderColor': '#20c997',
-                            'textColor': '#ffffff',
-                            'classNames': ['event-income'],
-                            'extendedProps': {
-                                'type': 'recurring_income',
-                                'icon': '💵',
-                                'typeLabel': 'Receita Recorrente',
-                                'amount': float(income.amount),
-                                'description': income.description,
-                                'status': 'Recorrente',
-                                'link': '/accounts',
-                                'reference_id': income.id,
-                                'category': income.category or 'Sem categoria'
-                            }
-                        })
-                    
-                    # Avançar para o próximo mês
-                    if month == 12:
-                        month = 1
-                        year += 1
-                    else:
-                        month += 1
-                    current_date = datetime(year, month, 1)
-            except Exception as e:
-                print(f"Erro ao processar receita recorrente {income.id}: {str(e)}")
-        
-        # 5. Parcelas
+                print(f"Erro ao processar account {acc.id}: {str(e)}")
+
+        # 4. Parcelas
         try:
             installments = Installment.query.join(Transaction).filter(
                 Installment.due_date >= start_date,
                 Installment.due_date <= end_date,
                 Installment.paid == False
             ).all()
-            
+
             for inst in installments:
                 try:
                     events.append({
@@ -244,10 +256,9 @@ def get_events():
                     print(f"Erro ao processar parcela {inst.id}: {str(e)}")
         except Exception as e:
             print(f"Erro ao buscar parcelas: {str(e)}")
-        
-        print(f"Total de eventos retornados: {len(events)}")
+
         return jsonify(events)
-        
+
     except Exception as e:
         print(f"Erro em get_events: {str(e)}")
         traceback.print_exc()
