@@ -152,16 +152,29 @@ def delete_transaction(transaction_id):
 
 @cards_bp.route('/api/cards/<int:card_id>/pay-current-invoice', methods=['POST'])
 def pay_current_invoice(card_id):
-    """Atalho para pagar a fatura (mês atual calendário) do cartão."""
+    """Atalho para pagar a fatura "atual" do cartão.
+
+    Importante: "atual" aqui segue a regra de fechamento do cartão (igual apps):
+    - Se já fechou no mês, pagar a próxima fatura.
+    - Se ainda não fechou, pagar a fatura do mês corrente.
+
+    Se month/year forem enviados, eles têm prioridade.
+    """
     card = CreditCard.query.get_or_404(card_id)
 
-    today = datetime.now()
-    month = request.json.get('month', today.month) if request.json else today.month
-    year = request.json.get('year', today.year) if request.json else today.year
+    payload = request.get_json(silent=True) or {}
+    month = payload.get('month')
+    year = payload.get('year')
+
+    if not month or not year:
+        month, year, _ = _suggest_target_statement(card)
 
     invoice = _get_or_create_invoice(card, int(month), int(year))
     if not invoice:
-        return jsonify({'error': 'Não há fatura para pagar neste mês (valor 0).'}), 400
+        return jsonify({
+            'error': 'Não há fatura para pagar neste período (valor 0).',
+            'target': {'month': int(month), 'year': int(year)}
+        }), 400
 
     if invoice.status == 'paid':
         return jsonify({'message': 'Fatura já está paga.', 'invoice': invoice.to_dict()}), 200
