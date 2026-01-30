@@ -10,11 +10,19 @@ class CreditCard(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
+
+    # Mantemos NOT NULL no schema original; quando usuário cadastrar em branco, o backend normaliza com defaults.
     limit_total = db.Column(db.Float, nullable=False)
     closing_day = db.Column(db.Integer, nullable=False)
     due_day = db.Column(db.Integer, nullable=False)
+
     flag = db.Column(db.String(50))
     last_digits = db.Column(db.String(4))
+
+    # Validade do cartão (opcional)
+    expiry_month = db.Column(db.Integer)
+    expiry_year = db.Column(db.Integer)
+
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -47,7 +55,8 @@ class CreditCard(db.Model):
 
     def get_available_limit(self):
         used = self.get_total_used()
-        return self.limit_total - used
+        total = self.limit_total or 0.0
+        return total - used
 
     def get_total_used(self):
         total = db.session.query(func.sum(Installment.amount)).join(Transaction).filter(
@@ -61,17 +70,19 @@ class CreditCard(db.Model):
         return {
             'id': self.id,
             'name': self.name,
-            'limit_total': self.limit_total,
-            'limit_available': self.get_available_limit(),
+            'limit_total': float(self.limit_total or 0.0),
+            'limit_available': float(self.get_available_limit()),
             # Compat: current_bill agora significa "em aberto" (zera quando pagar)
-            'current_bill': self.get_current_bill_amount(),
+            'current_bill': float(self.get_current_bill_amount()),
             # Extra (não quebra front antigo): total do mês atual (mesmo se pago)
-            'current_bill_total': self.get_bill_for_month(today.month, today.year),
-            'total_used': self.get_total_used(),
+            'current_bill_total': float(self.get_bill_for_month(today.month, today.year)),
+            'total_used': float(self.get_total_used()),
             'closing_day': self.closing_day,
             'due_day': self.due_day,
             'flag': self.flag,
             'last_digits': self.last_digits,
+            'expiry_month': self.expiry_month,
+            'expiry_year': self.expiry_year,
             'active': self.active
         }
 
@@ -106,9 +117,19 @@ class Transaction(db.Model):
         return ref.month, ref.year
 
     def _invoice_due_date(self, month: int, year: int) -> datetime:
+        """Calcula vencimento da fatura do cartão para um statement (mês/ano).
+
+        Suporta due_day > último dia do mês (ex.: default fechamento + 7 dias).
+        """
         card = self.card
-        due_day = min(card.due_day, monthrange(year, month)[1])
-        return datetime(year, month, due_day)
+        due_day = card.due_day or ((card.closing_day or 1) + 7)
+
+        days_in_month = monthrange(year, month)[1]
+        if due_day <= days_in_month:
+            return datetime(year, month, due_day)
+
+        overflow = due_day - days_in_month
+        return datetime(year, month, days_in_month) + timedelta(days=overflow)
 
     def create_installments(self):
         """Cria parcelas de forma não ambígua.

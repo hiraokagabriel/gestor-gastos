@@ -9,6 +9,7 @@ def init_db(app):
     with app.app_context():
         db.create_all()
         _ensure_accounts_recurrence_columns()
+        _ensure_credit_cards_optional_columns()
 
 def _table_exists(table_name: str) -> bool:
     row = db.session.execute(
@@ -47,3 +48,38 @@ def _ensure_accounts_recurrence_columns():
     except Exception as e:
         db.session.rollback()
         print(f"⚠️ Falha ao checar/aplicar auto-migração em accounts: {e}")
+
+
+def _ensure_credit_cards_optional_columns():
+    """Garante colunas opcionais em 'credit_cards' (SQLite).
+
+    O projeto não usa Alembic, então aplicamos ALTER TABLE idempotente.
+
+    - expiry_month: mês (1-12)
+    - expiry_year: ano (YYYY)
+    """
+    try:
+        if not _table_exists('credit_cards'):
+            return
+
+        rows = db.session.execute(text("PRAGMA table_info(credit_cards)")).fetchall()
+        cols = {row[1] for row in rows}
+
+        changed = False
+
+        if "expiry_month" not in cols:
+            db.session.execute(text("ALTER TABLE credit_cards ADD COLUMN expiry_month INTEGER"))
+            changed = True
+            print("🛠️ Auto-migração: adicionada coluna credit_cards.expiry_month")
+
+        if "expiry_year" not in cols:
+            db.session.execute(text("ALTER TABLE credit_cards ADD COLUMN expiry_year INTEGER"))
+            changed = True
+            print("🛠️ Auto-migração: adicionada coluna credit_cards.expiry_year")
+
+        if changed:
+            db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"⚠️ Falha ao checar/aplicar auto-migração em credit_cards: {e}")

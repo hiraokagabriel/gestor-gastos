@@ -1,11 +1,33 @@
 from flask import Blueprint, request, jsonify, render_template
 from models import CreditCard, Transaction, Installment, Invoice
 from database import db
-from datetime import datetime
+from datetime import datetime, timedelta
 from calendar import monthrange
 from dateutil.relativedelta import relativedelta
 
 cards_bp = Blueprint('cards', __name__, url_prefix='/cards')
+
+
+def _to_int_optional(value, default=None):
+    if value is None:
+        return default
+    if isinstance(value, str) and value.strip() == '':
+        return default
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _to_float_optional(value, default=None):
+    if value is None:
+        return default
+    if isinstance(value, str) and value.strip() == '':
+        return default
+    try:
+        return float(value)
+    except Exception:
+        return default
 
 
 def _suggest_target_statement(card: CreditCard):
@@ -28,8 +50,18 @@ def _suggest_target_statement(card: CreditCard):
 
 
 def _invoice_due_date(card: CreditCard, month: int, year: int) -> datetime:
-    due_day = min(card.due_day, monthrange(year, month)[1])
-    return datetime(year, month, due_day)
+    """Vencimento da fatura para um statement.
+
+    Suporta due_day > último dia do mês (caso default seja fechamento + 7 dias e caia no mês seguinte).
+    """
+    due_day = card.due_day or ((card.closing_day or 1) + 7)
+    days_in_month = monthrange(year, month)[1]
+
+    if due_day <= days_in_month:
+        return datetime(year, month, due_day)
+
+    overflow = due_day - days_in_month
+    return datetime(year, month, days_in_month) + timedelta(days=overflow)
 
 
 def _get_or_create_invoice(card: CreditCard, month: int, year: int) -> Invoice | None:
@@ -71,16 +103,53 @@ def get_card(card_id):
 
 @cards_bp.route('/api/cards', methods=['POST'])
 def create_card():
-    data = request.json
+    data = request.json or {}
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Nome do cartão é obrigatório.'}), 400
+
+    closing_day = _to_int_optional(data.get('closing_day'), None)
+    if not closing_day:
+        closing_day = 1
+
+    due_day = _to_int_optional(data.get('due_day'), None)
+    if not due_day:
+        due_day = closing_day + 7
+
+    limit_total = _to_float_optional(data.get('limit_total'), None)
+    if limit_total is None:
+        limit_total = 0.0
+
+    flag = data.get('flag')
+    if isinstance(flag, str) and flag.strip() == '':
+        flag = None
+
+    last_digits = data.get('last_digits')
+    if isinstance(last_digits, str):
+        last_digits = last_digits.strip()
+        if last_digits == '':
+            last_digits = None
+        elif not last_digits.isdigit() or len(last_digits) != 4:
+            return jsonify({'error': 'Últimos 4 dígitos devem ter exatamente 4 números (ou ficar em branco).'}), 400
+
+    expiry_month = _to_int_optional(data.get('expiry_month'), None)
+    expiry_year = _to_int_optional(data.get('expiry_year'), None)
+    if expiry_month is not None and (expiry_month < 1 or expiry_month > 12):
+        return jsonify({'error': 'expiry_month deve estar entre 1 e 12.'}), 400
+
     card = CreditCard(
-        name=data['name'],
-        limit_total=float(data['limit_total']),
-        closing_day=int(data['closing_day']),
-        due_day=int(data['due_day']),
-        flag=data.get('flag', ''),
-        last_digits=data.get('last_digits', ''),
-        active=data.get('active', True)
+        name=name,
+        limit_total=float(limit_total),
+        closing_day=int(closing_day),
+        due_day=int(due_day),
+        flag=flag,
+        last_digits=last_digits,
+        expiry_month=expiry_month,
+        expiry_year=expiry_year,
+        active=bool(data.get('active', True))
     )
+
     db.session.add(card)
     db.session.commit()
     return jsonify(card.to_dict()), 201
@@ -88,14 +157,56 @@ def create_card():
 @cards_bp.route('/api/cards/<int:card_id>', methods=['PUT'])
 def update_card(card_id):
     card = CreditCard.query.get_or_404(card_id)
-    data = request.json
-    card.name = data.get('name', card.name)
-    card.limit_total = float(data.get('limit_total', card.limit_total))
-    card.closing_day = int(data.get('closing_day', card.closing_day))
-    card.due_day = int(data.get('due_day', card.due_day))
-    card.flag = data.get('flag', card.flag)
-    card.last_digits = data.get('last_digits', card.last_digits)
-    card.active = data.get('active', card.active)
+    data = request.json or {}
+
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Nome do cartão é obrigatório.'}), 400
+        card.name = name
+
+    if 'limit_total' in data:
+        card.limit_total = float(_to_float_optional(data.get('limit_total'), 0.0) or 0.0)
+
+    if 'closing_day' in data:
+        cd = _to_int_optional(data.get('closing_day'), 1)
+        card.closing_day = int(cd or 1)
+
+    if 'due_day' in data:
+        dd = _to_int_optional(data.get('due_day'), None)
+        if not dd:
+            dd = (card.closing_day or 1) + 7
+        card.due_day = int(dd)
+
+    if 'flag' in data:
+        flag = data.get('flag')
+        if isinstance(flag, str) and flag.strip() == '':
+            flag = None
+        card.flag = flag
+
+    if 'last_digits' in data:
+        last_digits = data.get('last_digits')
+        if isinstance(last_digits, str):
+            last_digits = last_digits.strip()
+            if last_digits == '':
+                last_digits = None
+            elif not last_digits.isdigit() or len(last_digits) != 4:
+                return jsonify({'error': 'Últimos 4 dígitos devem ter exatamente 4 números (ou ficar em branco).'}), 400
+        card.last_digits = last_digits
+
+    if 'expiry_month' in data:
+        em = _to_int_optional(data.get('expiry_month'), None)
+        if em is not None and (em < 1 or em > 12):
+            return jsonify({'error': 'expiry_month deve estar entre 1 e 12 (ou ficar em branco).'}), 400
+        card.expiry_month = em
+
+    if 'expiry_year' in data:
+        ey = _to_int_optional(data.get('expiry_year'), None)
+        card.expiry_year = ey
+
+    if 'active' in data:
+        card.active = bool(data.get('active'))
+
     db.session.commit()
     return jsonify(card.to_dict())
 

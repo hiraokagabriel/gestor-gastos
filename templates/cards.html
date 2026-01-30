@@ -32,14 +32,17 @@
             <div class="modal-body">
                 <form id="cardForm">
                     <input type="hidden" id="cardId">
+
                     <div class="mb-3">
                         <label for="cardName" class="form-label">Nome do Cartão *</label>
                         <input type="text" class="form-control" id="cardName" required>
                     </div>
+
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="cardFlag" class="form-label">Bandeira</label>
                             <select class="form-select" id="cardFlag">
+                                <option value="">(Não informado)</option>
                                 <option value="Visa">Visa</option>
                                 <option value="Mastercard">Mastercard</option>
                                 <option value="Elo">Elo</option>
@@ -50,20 +53,37 @@
                         <div class="col-md-6 mb-3">
                             <label for="cardDigits" class="form-label">Últimos 4 dígitos</label>
                             <input type="text" class="form-control" id="cardDigits" maxlength="4" pattern="[0-9]{4}">
+                            <small class="text-muted">Opcional</small>
                         </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="cardLimit" class="form-label">Limite Total (R$) *</label>
-                        <input type="number" class="form-control" id="cardLimit" step="0.01" required>
-                    </div>
+
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label for="cardClosingDay" class="form-label">Dia do Fechamento *</label>
-                            <input type="number" class="form-control" id="cardClosingDay" min="1" max="31" required>
+                            <label for="cardExpiryMonth" class="form-label">Validade (mês)</label>
+                            <input type="number" class="form-control" id="cardExpiryMonth" min="1" max="12" placeholder="MM">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="cardDueDay" class="form-label">Dia do Vencimento *</label>
-                            <input type="number" class="form-control" id="cardDueDay" min="1" max="31" required>
+                            <label for="cardExpiryYear" class="form-label">Validade (ano)</label>
+                            <input type="number" class="form-control" id="cardExpiryYear" min="2000" max="2100" placeholder="YYYY">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="cardLimit" class="form-label">Limite Total (R$)</label>
+                        <input type="number" class="form-control" id="cardLimit" step="0.01" placeholder="0,00">
+                        <small class="text-muted">Opcional (se vazio, será 0)</small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="cardClosingDay" class="form-label">Dia do Fechamento</label>
+                            <input type="number" class="form-control" id="cardClosingDay" min="1" max="31">
+                            <small class="text-muted">Opcional (se vazio, será 1)</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="cardDueDay" class="form-label">Dia do Vencimento</label>
+                            <input type="number" class="form-control" id="cardDueDay" min="1" max="60">
+                            <small class="text-muted">Opcional (se vazio, será fechamento + 7 dias)</small>
                         </div>
                     </div>
                 </form>
@@ -205,6 +225,13 @@ function _ymToNumber(y, m) {
     return (y * 100) + m;
 }
 
+function _optValue(id) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const v = (el.value || '').toString().trim();
+    return v === '' ? null : v;
+}
+
 async function loadCards() {
     try {
         const response = await fetch('/cards/api/cards');
@@ -228,6 +255,10 @@ async function loadCards() {
         cardsList.innerHTML = cards.map(card => {
             const usagePercent = card.limit_total > 0 ? (card.total_used / card.limit_total * 100).toFixed(1) : 0;
 
+            const flagLabel = card.flag ? card.flag : 'Sem bandeira';
+            const digitsLabel = card.last_digits ? `**** ${card.last_digits}` : '';
+            const expiryLabel = (card.expiry_month && card.expiry_year) ? `${String(card.expiry_month).padStart(2,'0')}/${card.expiry_year}` : null;
+
             return `
                 <div class="col-md-6 col-lg-4">
                     <div class="card shadow-sm h-100">
@@ -235,7 +266,8 @@ async function loadCards() {
                             <div class="d-flex justify-content-between align-items-start mb-3">
                                 <div>
                                     <h5 class="card-title mb-1">${card.name}</h5>
-                                    <span class="badge bg-secondary">${card.flag} **** ${card.last_digits}</span>
+                                    <span class="badge bg-secondary">${flagLabel} ${digitsLabel}</span>
+                                    ${expiryLabel ? `<div class="small text-muted mt-1">Validade: <strong>${expiryLabel}</strong></div>` : ''}
                                 </div>
                                 <div class="dropdown">
                                     <button class="btn btn-sm btn-link text-secondary" data-bs-toggle="dropdown">
@@ -332,8 +364,10 @@ async function editCard(cardId) {
 
         document.getElementById('cardId').value = card.id;
         document.getElementById('cardName').value = card.name;
-        document.getElementById('cardFlag').value = card.flag;
-        document.getElementById('cardDigits').value = card.last_digits;
+        document.getElementById('cardFlag').value = card.flag || '';
+        document.getElementById('cardDigits').value = card.last_digits || '';
+        document.getElementById('cardExpiryMonth').value = card.expiry_month || '';
+        document.getElementById('cardExpiryYear').value = card.expiry_year || '';
         document.getElementById('cardLimit').value = card.limit_total;
         document.getElementById('cardClosingDay').value = card.closing_day;
         document.getElementById('cardDueDay').value = card.due_day;
@@ -352,13 +386,16 @@ async function saveCard() {
     if (!validateForm('cardForm')) return;
 
     const cardId = document.getElementById('cardId').value;
+
     const data = {
         name: document.getElementById('cardName').value,
-        flag: document.getElementById('cardFlag').value,
-        last_digits: document.getElementById('cardDigits').value,
-        limit_total: document.getElementById('cardLimit').value,
-        closing_day: document.getElementById('cardClosingDay').value,
-        due_day: document.getElementById('cardDueDay').value
+        flag: _optValue('cardFlag'),
+        last_digits: _optValue('cardDigits'),
+        expiry_month: _optValue('cardExpiryMonth'),
+        expiry_year: _optValue('cardExpiryYear'),
+        limit_total: _optValue('cardLimit'),
+        closing_day: _optValue('cardClosingDay'),
+        due_day: _optValue('cardDueDay')
     };
 
     try {
@@ -371,11 +408,17 @@ async function saveCard() {
             body: JSON.stringify(data)
         });
 
-        if (response.ok) {
-            bootstrap.Modal.getInstance(document.getElementById('cardModal')).hide();
-            showToast(cardId ? 'Cartão atualizado!' : 'Cartão cadastrado!', 'success');
-            loadCards();
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            showToast(payload.error || 'Erro ao salvar cartão', 'error');
+            return;
         }
+
+        bootstrap.Modal.getInstance(document.getElementById('cardModal')).hide();
+        showToast(cardId ? 'Cartão atualizado!' : 'Cartão cadastrado!', 'success');
+        loadCards();
+
     } catch (error) {
         console.error('Erro ao salvar cartão:', error);
         showToast('Erro ao salvar cartão', 'error');
