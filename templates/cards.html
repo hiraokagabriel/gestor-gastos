@@ -8,6 +8,9 @@
         <h2><i class="fas fa-credit-card"></i> Meus Cartões</h2>
     </div>
     <div class="col text-end">
+        <a class="btn btn-outline-primary me-2" href="/invoices">
+            <i class="fas fa-file-invoice-dollar"></i> Faturas
+        </a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#cardModal" onclick="openCardModal()">
             <i class="fas fa-plus"></i> Novo Cartão
         </button>
@@ -143,19 +146,72 @@
     </div>
 </div>
 
+<!-- Modal Antecipar Parcelas -->
+<div class="modal fade" id="anticipateModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Antecipar parcelas</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="anticipateTransactionId">
+                <input type="hidden" id="anticipateCardId">
+
+                <div class="alert alert-info">
+                    Regra: se a fatura do mês já fechou, a antecipação vai para a próxima fatura; caso contrário, vai para a fatura atual.
+                </div>
+
+                <div class="mb-3">
+                    <strong id="anticipateTxTitle"></strong>
+                    <div class="text-muted" id="anticipateTxMeta"></div>
+                </div>
+
+                <div id="anticipateInstallments"></div>
+
+                <hr>
+
+                <h6>Juros simples (manual)</h6>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label">Taxa ao mês (%)</label>
+                        <input type="number" step="0.01" class="form-control" id="interestRate" value="0">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Dias</label>
+                        <input type="number" step="1" class="form-control" id="interestDays" value="0">
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-outline-primary w-100" onclick="calcInterest(); return false;">Calcular</button>
+                    </div>
+                </div>
+                <div class="mt-2" id="interestResult" class="text-muted"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="confirmAnticipation()">Antecipar selecionadas</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
 let currentCardId = null;
 
+function _ymToNumber(y, m) {
+    return (y * 100) + m;
+}
+
 async function loadCards() {
     try {
         const response = await fetch('/cards/api/cards');
         const cards = await response.json();
-        
+
         const cardsList = document.getElementById('cardsList');
-        
+
         if (cards.length === 0) {
             cardsList.innerHTML = `
                 <div class="col-12 text-center text-muted py-5">
@@ -168,11 +224,10 @@ async function loadCards() {
             `;
             return;
         }
-        
+
         cardsList.innerHTML = cards.map(card => {
             const usagePercent = card.limit_total > 0 ? (card.total_used / card.limit_total * 100).toFixed(1) : 0;
-            const availablePercent = 100 - usagePercent;
-            
+
             return `
                 <div class="col-md-6 col-lg-4">
                     <div class="card shadow-sm h-100">
@@ -197,7 +252,7 @@ async function loadCards() {
                                     </ul>
                                 </div>
                             </div>
-                            
+
                             <div class="mb-3">
                                 <div class="d-flex justify-content-between mb-1">
                                     <small>Limite Total</small>
@@ -215,14 +270,18 @@ async function loadCards() {
                                     <span class="text-success">Disponível: R$ ${card.limit_available.toFixed(2)}</span>
                                 </div>
                             </div>
-                            
+
                             <div class="mb-3 p-2 bg-light rounded">
                                 <div class="d-flex justify-content-between">
-                                    <small class="text-muted">Fatura Atual</small>
+                                    <small class="text-muted">Em aberto (mês atual)</small>
                                     <small class="fw-bold text-primary">R$ ${card.current_bill.toFixed(2)}</small>
                                 </div>
+                                <div class="d-flex justify-content-between small">
+                                    <span class="text-muted">Total do mês:</span>
+                                    <span>R$ ${(card.current_bill_total || 0).toFixed(2)}</span>
+                                </div>
                             </div>
-                            
+
                             <div class="mb-3">
                                 <div class="row text-center small">
                                     <div class="col-6">
@@ -235,7 +294,7 @@ async function loadCards() {
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div class="d-grid gap-2">
                                 <button class="btn btn-primary btn-sm" onclick="openTransactionModal(${card.id})">
                                     <i class="fas fa-plus"></i> Nova Compra
@@ -243,13 +302,16 @@ async function loadCards() {
                                 <button class="btn btn-outline-primary btn-sm" onclick="viewTransactions(${card.id}, '${card.name}')">
                                     <i class="fas fa-list"></i> Ver Transações
                                 </button>
+                                <button class="btn btn-success btn-sm" onclick="payCurrentInvoice(${card.id})">
+                                    <i class="fas fa-check"></i> Pagar fatura (mês atual)
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             `;
         }).join('');
-        
+
     } catch (error) {
         console.error('Erro ao carregar cartões:', error);
         showToast('Erro ao carregar cartões', 'error');
@@ -267,7 +329,7 @@ async function editCard(cardId) {
     try {
         const response = await fetch(`/cards/api/cards/${cardId}`);
         const card = await response.json();
-        
+
         document.getElementById('cardId').value = card.id;
         document.getElementById('cardName').value = card.name;
         document.getElementById('cardFlag').value = card.flag;
@@ -275,10 +337,10 @@ async function editCard(cardId) {
         document.getElementById('cardLimit').value = card.limit_total;
         document.getElementById('cardClosingDay').value = card.closing_day;
         document.getElementById('cardDueDay').value = card.due_day;
-        
+
         document.getElementById('cardModalTitle').textContent = 'Editar Cartão';
         currentCardId = cardId;
-        
+
         new bootstrap.Modal(document.getElementById('cardModal')).show();
     } catch (error) {
         console.error('Erro ao carregar cartão:', error);
@@ -288,7 +350,7 @@ async function editCard(cardId) {
 
 async function saveCard() {
     if (!validateForm('cardForm')) return;
-    
+
     const cardId = document.getElementById('cardId').value;
     const data = {
         name: document.getElementById('cardName').value,
@@ -298,17 +360,17 @@ async function saveCard() {
         closing_day: document.getElementById('cardClosingDay').value,
         due_day: document.getElementById('cardDueDay').value
     };
-    
+
     try {
         const url = cardId ? `/cards/api/cards/${cardId}` : '/cards/api/cards';
         const method = cardId ? 'PUT' : 'POST';
-        
+
         const response = await fetch(url, {
             method: method,
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
         });
-        
+
         if (response.ok) {
             bootstrap.Modal.getInstance(document.getElementById('cardModal')).hide();
             showToast(cardId ? 'Cartão atualizado!' : 'Cartão cadastrado!', 'success');
@@ -324,12 +386,12 @@ async function deleteCard(cardId) {
     if (!confirm('Tem certeza que deseja excluir este cartão? Todas as transações serão perdidas.')) {
         return;
     }
-    
+
     try {
         const response = await fetch(`/cards/api/cards/${cardId}`, {
             method: 'DELETE'
         });
-        
+
         if (response.ok) {
             showToast('Cartão excluído com sucesso!', 'success');
             loadCards();
@@ -349,7 +411,7 @@ function openTransactionModal(cardId) {
 
 async function saveTransaction() {
     if (!validateForm('transactionForm')) return;
-    
+
     const data = {
         card_id: document.getElementById('transactionCardId').value,
         description: document.getElementById('transactionDescription').value,
@@ -358,14 +420,14 @@ async function saveTransaction() {
         category: document.getElementById('transactionCategory').value,
         installments_total: document.getElementById('transactionInstallments').value
     };
-    
+
     try {
         const response = await fetch('/cards/api/transactions', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
         });
-        
+
         if (response.ok) {
             bootstrap.Modal.getInstance(document.getElementById('transactionModal')).hide();
             showToast('Compra registrada com sucesso!', 'success');
@@ -377,21 +439,45 @@ async function saveTransaction() {
     }
 }
 
+async function payCurrentInvoice(cardId) {
+    if (!confirm('Deseja marcar a fatura do mês atual como paga?')) return;
+
+    try {
+        const response = await fetch(`/cards/api/cards/${cardId}/pay-current-invoice`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            showToast(data.error || 'Erro ao pagar fatura', 'error');
+            return;
+        }
+
+        showToast('Fatura marcada como paga!', 'success');
+        loadCards();
+    } catch (error) {
+        console.error('Erro ao pagar fatura:', error);
+        showToast('Erro ao pagar fatura', 'error');
+    }
+}
+
 async function viewTransactions(cardId, cardName) {
     try {
         const response = await fetch(`/cards/api/cards/${cardId}/transactions`);
         const transactions = await response.json();
-        
+
         document.getElementById('viewTransactionsTitle').textContent = `Transações - ${cardName}`;
-        
+
         const transactionsList = document.getElementById('transactionsList');
-        
+
         if (transactions.length === 0) {
             transactionsList.innerHTML = '<p class="text-center text-muted py-4">Nenhuma transação encontrada</p>';
             new bootstrap.Modal(document.getElementById('viewTransactionsModal')).show();
             return;
         }
-        
+
         transactionsList.innerHTML = `
             <div class="table-responsive">
                 <table class="table table-hover">
@@ -414,6 +500,11 @@ async function viewTransactions(cardId, cardName) {
                                 <td class="fw-bold text-primary">R$ ${t.amount.toFixed(2)}</td>
                                 <td>${t.installments_total}x de R$ ${(t.amount / t.installments_total).toFixed(2)}</td>
                                 <td>
+                                    ${t.installments_total > 1 ? `
+                                    <button class="btn btn-sm btn-outline-primary" onclick="openAnticipateModal(${t.id}, ${cardId})" title="Antecipar parcelas">
+                                        <i class="fas fa-forward"></i>
+                                    </button>
+                                    ` : ''}
                                     <button class="btn btn-sm btn-danger" onclick="deleteTransaction(${t.id}, ${cardId}, '${cardName}')" title="Excluir">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -424,7 +515,7 @@ async function viewTransactions(cardId, cardName) {
                 </table>
             </div>
         `;
-        
+
         new bootstrap.Modal(document.getElementById('viewTransactionsModal')).show();
     } catch (error) {
         console.error('Erro ao carregar transações:', error);
@@ -432,16 +523,142 @@ async function viewTransactions(cardId, cardName) {
     }
 }
 
+async function openAnticipateModal(transactionId, cardId) {
+    try {
+        document.getElementById('anticipateTransactionId').value = transactionId;
+        document.getElementById('anticipateCardId').value = cardId;
+        document.getElementById('interestResult').innerHTML = '';
+
+        const response = await fetch(`/cards/api/transactions/${transactionId}`);
+        const tx = await response.json();
+
+        document.getElementById('anticipateTxTitle').textContent = tx.description;
+        document.getElementById('anticipateTxMeta').textContent = `Total: R$ ${tx.amount.toFixed(2)} | ${tx.installments_total} parcelas`;
+
+        const target = tx.anticipation_target;
+        const targetLabel = `${String(target.month).padStart(2,'0')}/${target.year}`;
+
+        const container = document.getElementById('anticipateInstallments');
+
+        if (!tx.installments || tx.installments.length === 0) {
+            container.innerHTML = '<div class="alert alert-warning">Nenhuma parcela encontrada.</div>';
+        } else {
+            const targetNum = _ymToNumber(target.year, target.month);
+
+            const rows = tx.installments.map(inst => {
+                const stmtNum = _ymToNumber(inst.statement_year || 0, inst.statement_month || 0);
+                const isFuture = stmtNum > targetNum;
+                const disabled = inst.paid || !isFuture;
+                const reason = inst.paid ? 'paga' : (!isFuture ? 'não é futura' : '');
+
+                return `
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="${inst.id}" id="inst_${inst.id}" ${disabled ? 'disabled' : ''}>
+                        <label class="form-check-label" for="inst_${inst.id}">
+                            Parcela ${inst.installment_number}/${inst.total_installments} — R$ ${inst.amount.toFixed(2)} — fatura ${String(inst.statement_month).padStart(2,'0')}/${inst.statement_year}
+                            ${disabled ? `<small class="text-muted">(${reason})</small>` : ''}
+                        </label>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="mb-2"><strong>Destino:</strong> ${target.kind === 'current' ? 'Fatura atual' : 'Próxima fatura'} (${targetLabel})</div>
+                ${rows}
+            `;
+        }
+
+        new bootstrap.Modal(document.getElementById('anticipateModal')).show();
+    } catch (error) {
+        console.error('Erro ao abrir modal de antecipação:', error);
+        showToast('Erro ao abrir antecipação', 'error');
+    }
+}
+
+function _selectedInstallmentIds() {
+    return Array.from(document.querySelectorAll('#anticipateInstallments input[type=checkbox]:checked'))
+        .map(el => parseInt(el.value));
+}
+
+function _selectedPrincipal() {
+    const checked = document.querySelectorAll('#anticipateInstallments input[type=checkbox]:checked');
+    let principal = 0;
+    checked.forEach(el => {
+        const label = el.nextElementSibling;
+        const m = label.textContent.match(/R\$\s([0-9]+\.[0-9]+)/);
+        if (m) principal += parseFloat(m[1]);
+    });
+    return principal;
+}
+
+async function calcInterest() {
+    const principal = _selectedPrincipal();
+    const rate = parseFloat(document.getElementById('interestRate').value || '0');
+    const days = parseFloat(document.getElementById('interestDays').value || '0');
+
+    if (principal <= 0) {
+        document.getElementById('interestResult').innerHTML = '<small class="text-muted">Selecione pelo menos uma parcela.</small>';
+        return;
+    }
+
+    try {
+        const response = await fetch('/cards/api/simple-interest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({principal, rate_percent_month: rate, days})
+        });
+        const data = await response.json();
+
+        document.getElementById('interestResult').innerHTML = 
+            `<small class="text-muted">Principal: R$ ${data.principal.toFixed(2)} | Juros: R$ ${data.interest.toFixed(2)} | Total: R$ ${data.total.toFixed(2)} ( ${data.formula} )</small>`;
+    } catch (e) {
+        document.getElementById('interestResult').innerHTML = '<small class="text-danger">Erro ao calcular juros.</small>';
+    }
+}
+
+async function confirmAnticipation() {
+    const transactionId = document.getElementById('anticipateTransactionId').value;
+    const ids = _selectedInstallmentIds();
+
+    if (ids.length === 0) {
+        showToast('Selecione parcelas futuras para antecipar.', 'error');
+        return;
+    }
+
+    if (!confirm(`Antecipar ${ids.length} parcela(s) para a fatura atual/próxima conforme regra?`)) return;
+
+    try {
+        const response = await fetch(`/cards/api/transactions/${transactionId}/anticipate`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({installment_ids: ids})
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            showToast(data.error || 'Erro ao antecipar', 'error');
+            return;
+        }
+
+        showToast(`Antecipação ok: movidas ${data.moved}, ignoradas ${data.skipped}.`, 'success');
+        bootstrap.Modal.getInstance(document.getElementById('anticipateModal')).hide();
+        loadCards();
+    } catch (error) {
+        console.error('Erro ao antecipar:', error);
+        showToast('Erro ao antecipar', 'error');
+    }
+}
+
 async function deleteTransaction(transactionId, cardId, cardName) {
     if (!confirm('Tem certeza que deseja excluir esta transação?')) {
         return;
     }
-    
+
     try {
         const response = await fetch(`/cards/api/transactions/${transactionId}`, {
             method: 'DELETE'
         });
-        
+
         if (response.ok) {
             showToast('Transação excluída!', 'success');
             viewTransactions(cardId, cardName);

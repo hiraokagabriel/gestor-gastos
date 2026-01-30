@@ -22,24 +22,28 @@ class CreditCard(db.Model):
     invoices = db.relationship('Invoice', backref='card', lazy=True, cascade='all, delete-orphan')
 
     def get_bill_for_month(self, month, year):
-        """Calcula o valor da fatura para um mês/ano específico"""
-        closing_date = datetime(year, month, min(self.closing_day, monthrange(year, month)[1]))
-
-        prev_month = month - 1 if month > 1 else 12
-        prev_year = year if month > 1 else year - 1
-        start_date = datetime(prev_year, prev_month, min(self.closing_day, monthrange(prev_year, prev_month)[1]))
-
+        """Calcula o valor total da fatura para um mês/ano específico (total do ciclo, mesmo se já tiver sido pago)."""
         total = db.session.query(func.sum(Installment.amount)).join(Transaction).filter(
             Transaction.card_id == self.id,
-            Installment.due_date >= start_date,
-            Installment.due_date < closing_date
+            Installment.statement_month == month,
+            Installment.statement_year == year
         ).scalar() or 0.0
+        return total
 
+    def get_open_bill_for_month(self, month, year):
+        """Calcula o valor em aberto da fatura (apenas parcelas não pagas) para um mês/ano."""
+        total = db.session.query(func.sum(Installment.amount)).join(Transaction).filter(
+            Transaction.card_id == self.id,
+            Installment.statement_month == month,
+            Installment.statement_year == year,
+            Installment.paid == False
+        ).scalar() or 0.0
         return total
 
     def get_current_bill_amount(self):
+        """Valor em aberto da fatura do mês atual (por mês calendário, não por range de datas)."""
         today = datetime.now()
-        return self.get_bill_for_month(today.month, today.year)
+        return self.get_open_bill_for_month(today.month, today.year)
 
     def get_available_limit(self):
         used = self.get_total_used()
@@ -53,12 +57,16 @@ class CreditCard(db.Model):
         return total
 
     def to_dict(self):
+        today = datetime.now()
         return {
             'id': self.id,
             'name': self.name,
             'limit_total': self.limit_total,
             'limit_available': self.get_available_limit(),
+            # Compat: current_bill agora significa "em aberto" (zera quando pagar)
             'current_bill': self.get_current_bill_amount(),
+            # Extra (não quebra front antigo): total do mês atual (mesmo se pago)
+            'current_bill_total': self.get_bill_for_month(today.month, today.year),
             'total_used': self.get_total_used(),
             'closing_day': self.closing_day,
             'due_day': self.due_day,
@@ -82,27 +90,67 @@ class Transaction(db.Model):
 
     installments = db.relationship('Installment', backref='transaction', lazy=True, cascade='all, delete-orphan')
 
+    def _first_statement_month_year(self):
+        """Define em qual fatura a compra cai (parcela 1)."""
+        card = self.card
+        tx_date = self.date
+
+        closing_day = min(card.closing_day, monthrange(tx_date.year, tx_date.month)[1])
+        closing_date = datetime(tx_date.year, tx_date.month, closing_day)
+
+        if tx_date >= closing_date:
+            ref = datetime(tx_date.year, tx_date.month, 1) + relativedelta(months=1)
+        else:
+            ref = datetime(tx_date.year, tx_date.month, 1)
+
+        return ref.month, ref.year
+
+    def _invoice_due_date(self, month: int, year: int) -> datetime:
+        card = self.card
+        due_day = min(card.due_day, monthrange(year, month)[1])
+        return datetime(year, month, due_day)
+
     def create_installments(self):
+        """Cria parcelas de forma não ambígua.
+
+        - Cada parcela recebe statement_month/year (em qual fatura aparece).
+        - due_date passa a ser o vencimento do cartão naquele statement (igual apps).
+        """
+        first_month, first_year = self._first_statement_month_year()
+
         if self.installments_total == 1:
+            due_date = self._invoice_due_date(first_month, first_year)
             installment = Installment(
                 transaction_id=self.id,
                 installment_number=1,
                 total_installments=1,
                 amount=self.amount,
-                due_date=self.date,
+                due_date=due_date,
+                statement_month=first_month,
+                statement_year=first_year,
+                original_statement_month=first_month,
+                original_statement_year=first_year,
                 paid=False
             )
             db.session.add(installment)
         else:
             amount_per_installment = self.amount / self.installments_total
+            base = datetime(first_year, first_month, 1)
             for i in range(1, self.installments_total + 1):
-                due_date = self.date + timedelta(days=30 * (i - 1))
+                ref = base + relativedelta(months=(i - 1))
+                stmt_month, stmt_year = ref.month, ref.year
+                due_date = self._invoice_due_date(stmt_month, stmt_year)
+
                 installment = Installment(
                     transaction_id=self.id,
                     installment_number=i,
                     total_installments=self.installments_total,
                     amount=amount_per_installment,
                     due_date=due_date,
+                    statement_month=stmt_month,
+                    statement_year=stmt_year,
+                    original_statement_month=stmt_month,
+                    original_statement_year=stmt_year,
                     paid=False
                 )
                 db.session.add(installment)
@@ -129,6 +177,20 @@ class Installment(db.Model):
     total_installments = db.Column(db.Integer, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     due_date = db.Column(db.DateTime, nullable=False)
+
+    # Fonte de verdade: em qual fatura esta parcela aparece
+    statement_month = db.Column(db.Integer)
+    statement_year = db.Column(db.Integer)
+
+    # Auditoria (não ambíguo): onde a parcela estava originalmente
+    original_statement_month = db.Column(db.Integer)
+    original_statement_year = db.Column(db.Integer)
+
+    # Auditoria de antecipação (quando aplicável)
+    anticipated_at = db.Column(db.DateTime)
+    anticipated_from_month = db.Column(db.Integer)
+    anticipated_from_year = db.Column(db.Integer)
+
     paid = db.Column(db.Boolean, default=False)
     paid_date = db.Column(db.DateTime)
 
@@ -140,7 +202,14 @@ class Installment(db.Model):
             'amount': self.amount,
             'due_date': self.due_date.strftime('%Y-%m-%d'),
             'paid': self.paid,
-            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None
+            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None,
+            'statement_month': self.statement_month,
+            'statement_year': self.statement_year,
+            'original_statement_month': self.original_statement_month,
+            'original_statement_year': self.original_statement_year,
+            'anticipated_at': self.anticipated_at.strftime('%Y-%m-%d %H:%M:%S') if self.anticipated_at else None,
+            'anticipated_from_month': self.anticipated_from_month,
+            'anticipated_from_year': self.anticipated_from_year,
         }
 
 class Invoice(db.Model):
