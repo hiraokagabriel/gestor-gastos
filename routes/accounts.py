@@ -3,76 +3,15 @@ from models import Account
 from database import db
 from datetime import datetime
 from calendar import monthrange
-from sqlalchemy import and_, extract
+from sqlalchemy import and_
+
+from services.recurrence import ensure_recurring_materialized_for_month
 
 accounts_bp = Blueprint('accounts', __name__, url_prefix='/accounts')
 
 @accounts_bp.route('/')
 def index():
     return render_template('accounts.html')
-
-
-def _ensure_recurring_materialized_for_month(year: int, month: int) -> int:
-    """Garante que cada origem recorrente tenha uma instância (filho) para o mês/ano informados.
-
-    Regra:
-    - Não gera meses anteriores ao mês/ano de início (date) da origem.
-    - Se a origem já pertence ao mês/ano alvo, não cria filho (a origem é o lançamento daquele mês).
-    - Evita duplicidade checando por parent_id + (year, month).
-    """
-    # Origens recorrentes: recurring=True e parent_id is NULL
-    origins = Account.query.filter(
-        Account.recurring == True,
-        Account.parent_id.is_(None)
-    ).all()
-
-    created = 0
-    for origin in origins:
-        if not origin.date:
-            continue
-
-        # Não gerar para meses anteriores ao início da origem
-        origin_ym = (origin.date.year, origin.date.month)
-        target_ym = (year, month)
-        if target_ym < origin_ym:
-            continue
-
-        # Se a própria origem já é do mês/ano alvo, não cria filho
-        if origin.date.year == year and origin.date.month == month:
-            continue
-
-        day = origin.recurring_day or origin.date.day
-        max_day = monthrange(year, month)[1]
-        day = min(day, max_day)
-        target_date = datetime(year, month, day)
-
-        exists = Account.query.filter(
-            Account.parent_id == origin.id,
-            extract('year', Account.date) == year,
-            extract('month', Account.date) == month
-        ).first()
-
-        if exists:
-            continue
-
-        child = Account(
-            description=origin.description,
-            amount=origin.amount,
-            type=origin.type,
-            category=origin.category,
-            date=target_date,
-            recurring=False,
-            parent_id=origin.id,
-            recurring_day=origin.recurring_day,
-            consolidated=False
-        )
-        db.session.add(child)
-        created += 1
-
-    if created:
-        db.session.commit()
-
-    return created
 
 
 @accounts_bp.route('/api/accounts', methods=['GET'])
@@ -89,7 +28,7 @@ def get_accounts():
 
     # Materializar recorrências para o mês/ano solicitado
     if month and year:
-        _ensure_recurring_materialized_for_month(year, month)
+        ensure_recurring_materialized_for_month(year, month)
 
     query = Account.query
 
@@ -138,7 +77,7 @@ def get_summary():
         year = today.year
 
     # Materializar recorrências também no resumo (para bater com o que a lista mostra)
-    _ensure_recurring_materialized_for_month(year, month)
+    ensure_recurring_materialized_for_month(year, month)
 
     first_day = datetime(year, month, 1)
     last_day_num = monthrange(year, month)[1]
