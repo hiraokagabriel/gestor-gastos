@@ -3,11 +3,32 @@ from models import Account
 from database import db
 from datetime import datetime
 from calendar import monthrange
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 
 from services.recurrence import ensure_recurring_materialized_for_month
 
 accounts_bp = Blueprint('accounts', __name__, url_prefix='/accounts')
+
+
+def _parse_date_ymd(value: str) -> datetime:
+    return datetime.strptime(value, '%Y-%m-%d')
+
+
+def _materialize_recurring_for_range(start_dt: datetime, end_dt: datetime) -> int:
+    """Materializa recorrências mês a mês dentro do intervalo (inclusive)."""
+    created = 0
+    y, m = start_dt.year, start_dt.month
+    end_ym = (end_dt.year, end_dt.month)
+
+    while (y, m) <= end_ym:
+        created += ensure_recurring_materialized_for_month(y, m)
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
+    return created
+
 
 @accounts_bp.route('/')
 def index():
@@ -18,48 +39,67 @@ def index():
 def get_accounts():
     """Listar lançamentos com filtros.
 
-    Importante: se houver origens recorrentes, materializa automaticamente o mês solicitado
-    (para evitar sumir/duplicar e para dar clareza de 'o que precisa ser pago' naquele mês).
+    Suporta dois modos de período:
+    - month/year (compat)
+    - start_date/end_date (filtro customizado)
+
+    Importante: se houver origens recorrentes, materializa automaticamente os meses no período.
     """
     account_type = request.args.get('type')  # income, expense
     status = request.args.get('status')  # pending, consolidated, all
+
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
     month = request.args.get('month', type=int)
     year = request.args.get('year', type=int)
 
-    # Materializar recorrências para o mês/ano solicitado
-    if month and year:
+    # Resolver período
+    if start_date and end_date:
+        start_dt = _parse_date_ymd(start_date)
+        end_dt = _parse_date_ymd(end_date)
+
+        if start_dt > end_dt:
+            return jsonify({'error': 'start_date não pode ser maior que end_date'}), 400
+
+        first_day = datetime(start_dt.year, start_dt.month, start_dt.day, 0, 0, 0)
+        last_day = datetime(end_dt.year, end_dt.month, end_dt.day, 23, 59, 59)
+
+        _materialize_recurring_for_range(first_day, last_day)
+    elif month and year:
         ensure_recurring_materialized_for_month(year, month)
+
+        first_day = datetime(year, month, 1)
+        last_day_num = monthrange(year, month)[1]
+        last_day = datetime(year, month, last_day_num, 23, 59, 59)
+    else:
+        # default: mês atual
+        today = datetime.now()
+        month = today.month
+        year = today.year
+        ensure_recurring_materialized_for_month(year, month)
+
+        first_day = datetime(year, month, 1)
+        last_day_num = monthrange(year, month)[1]
+        last_day = datetime(year, month, last_day_num, 23, 59, 59)
 
     query = Account.query
 
-    # Filtrar por tipo
+    # Tipo
     if account_type:
         query = query.filter_by(type=account_type)
 
-    # Filtrar por status de consolidação
+    # Status de consolidação
     if status == 'pending':
         query = query.filter_by(consolidated=False)
     elif status == 'consolidated':
         query = query.filter_by(consolidated=True)
 
-    # Filtrar por mês/ano
-    if month and year:
-        first_day = datetime(year, month, 1)
-        last_day_num = monthrange(year, month)[1]
-        last_day = datetime(year, month, last_day_num, 23, 59, 59)
+    # Período
+    query = query.filter(and_(Account.date >= first_day, Account.date <= last_day))
 
-        query = query.filter(
-            and_(
-                Account.date >= first_day,
-                Account.date <= last_day
-            )
-        )
-
-    # Ordenação para clareza: linha do tempo do mês (por data), e dentro do mesmo dia pendentes primeiro
-    query = query.order_by(
-        Account.date.asc(),
-        Account.consolidated.asc()
-    )
+    # Ordenação
+    query = query.order_by(Account.date.asc(), Account.consolidated.asc())
 
     accounts = query.all()
     return jsonify([account.to_dict() for account in accounts])
@@ -67,72 +107,168 @@ def get_accounts():
 
 @accounts_bp.route('/api/accounts/summary', methods=['GET'])
 def get_summary():
-    """Resumo financeiro com separação de consolidados vs pendentes"""
+    """Resumo financeiro estilo fluxo de caixa.
+
+    Retorna:
+    - Totais do período (consolidado e total)
+    - Saldo inicial (antes do período) e saldo final (saldo inicial + movimento do período)
+
+    Suporta month/year e start_date/end_date.
+    """
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
     month = request.args.get('month', type=int)
     year = request.args.get('year', type=int)
 
-    if not month or not year:
-        today = datetime.now()
-        month = today.month
-        year = today.year
+    # Resolver período
+    if start_date and end_date:
+        start_dt = _parse_date_ymd(start_date)
+        end_dt = _parse_date_ymd(end_date)
 
-    # Materializar recorrências também no resumo (para bater com o que a lista mostra)
-    ensure_recurring_materialized_for_month(year, month)
+        if start_dt > end_dt:
+            return jsonify({'error': 'start_date não pode ser maior que end_date'}), 400
 
-    first_day = datetime(year, month, 1)
-    last_day_num = monthrange(year, month)[1]
-    last_day = datetime(year, month, last_day_num, 23, 59, 59)
+        first_day = datetime(start_dt.year, start_dt.month, start_dt.day, 0, 0, 0)
+        last_day = datetime(end_dt.year, end_dt.month, end_dt.day, 23, 59, 59)
 
-    accounts = Account.query.filter(
-        and_(
+        _materialize_recurring_for_range(first_day, last_day)
+    else:
+        if not month or not year:
+            today = datetime.now()
+            month = today.month
+            year = today.year
+
+        ensure_recurring_materialized_for_month(year, month)
+
+        first_day = datetime(year, month, 1)
+        last_day_num = monthrange(year, month)[1]
+        last_day = datetime(year, month, last_day_num, 23, 59, 59)
+
+    # Helpers de soma
+    def _sum_amount(q):
+        return float(q.scalar() or 0.0)
+
+    # Saldo inicial (antes do período)
+    initial_income_consolidated = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'income',
+            Account.consolidated == True,
+            Account.date < first_day
+        )
+    )
+    initial_expense_consolidated = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'expense',
+            Account.consolidated == True,
+            Account.date < first_day
+        )
+    )
+    balance_initial_consolidated = initial_income_consolidated - initial_expense_consolidated
+
+    initial_income_total = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'income',
+            Account.date < first_day
+        )
+    )
+    initial_expense_total = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'expense',
+            Account.date < first_day
+        )
+    )
+    balance_initial_total = initial_income_total - initial_expense_total
+
+    # Totais do período
+    income_consolidated = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'income',
+            Account.consolidated == True,
             Account.date >= first_day,
             Account.date <= last_day
         )
-    ).all()
+    )
+    income_pending = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'income',
+            Account.consolidated == False,
+            Account.date >= first_day,
+            Account.date <= last_day
+        )
+    )
 
-    summary = {
-        'income_pending': 0.0,
-        'income_consolidated': 0.0,
-        'income_total': 0.0,
-        'expense_pending': 0.0,
-        'expense_consolidated': 0.0,
-        'expense_total': 0.0,
-        'balance_pending': 0.0,
-        'balance_consolidated': 0.0,
-        'balance_total': 0.0,
+    expense_consolidated = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'expense',
+            Account.consolidated == True,
+            Account.date >= first_day,
+            Account.date <= last_day
+        )
+    )
+    expense_pending = _sum_amount(
+        db.session.query(func.sum(Account.amount)).filter(
+            Account.type == 'expense',
+            Account.consolidated == False,
+            Account.date >= first_day,
+            Account.date <= last_day
+        )
+    )
+
+    income_total = income_consolidated + income_pending
+    expense_total = expense_consolidated + expense_pending
+
+    period_balance_consolidated = income_consolidated - expense_consolidated
+    period_balance_total = income_total - expense_total
+
+    balance_final_consolidated = balance_initial_consolidated + period_balance_consolidated
+    balance_final_total = balance_initial_total + period_balance_total
+
+    # Contagens (para UI/diagnóstico)
+    recurring_count = db.session.query(func.count(Account.id)).filter(
+        Account.date >= first_day,
+        Account.date <= last_day,
+        ((Account.recurring == True) | (Account.parent_id.isnot(None)))
+    ).scalar() or 0
+
+    pending_count = db.session.query(func.count(Account.id)).filter(
+        Account.date >= first_day,
+        Account.date <= last_day,
+        Account.consolidated == False
+    ).scalar() or 0
+
+    consolidated_count = db.session.query(func.count(Account.id)).filter(
+        Account.date >= first_day,
+        Account.date <= last_day,
+        Account.consolidated == True
+    ).scalar() or 0
+
+    return jsonify({
+        # Período usado
+        'period_start': first_day.strftime('%Y-%m-%d'),
+        'period_end': last_day.strftime('%Y-%m-%d'),
+
+        # Totais do período
+        'income_pending': round(income_pending, 2),
+        'income_consolidated': round(income_consolidated, 2),
+        'income_total': round(income_total, 2),
+        'expense_pending': round(expense_pending, 2),
+        'expense_consolidated': round(expense_consolidated, 2),
+        'expense_total': round(expense_total, 2),
+
+        # Fluxo de caixa
+        'balance_initial_consolidated': round(balance_initial_consolidated, 2),
+        'balance_initial_total': round(balance_initial_total, 2),
+        'period_balance_consolidated': round(period_balance_consolidated, 2),
+        'period_balance_total': round(period_balance_total, 2),
+        'balance_consolidated': round(balance_final_consolidated, 2),
+        'balance_total': round(balance_final_total, 2),
 
         # Estatísticas extras
-        'recurring_count': 0,
-        'pending_count': 0,
-        'consolidated_count': 0,
-    }
-
-    for account in accounts:
-        if account.type == 'income':
-            summary['income_total'] += account.amount
-            if account.consolidated:
-                summary['income_consolidated'] += account.amount
-                summary['consolidated_count'] += 1
-            else:
-                summary['income_pending'] += account.amount
-                summary['pending_count'] += 1
-        else:
-            summary['expense_total'] += account.amount
-            if account.consolidated:
-                summary['expense_consolidated'] += account.amount
-                summary['consolidated_count'] += 1
-            else:
-                summary['expense_pending'] += account.amount
-                summary['pending_count'] += 1
-
-        if account.is_recurring_origin or account.is_recurring_child:
-            summary['recurring_count'] += 1
-
-    summary['balance_pending'] = summary['income_pending'] - summary['expense_pending']
-    summary['balance_consolidated'] = summary['income_consolidated'] - summary['expense_consolidated']
-    summary['balance_total'] = summary['income_total'] - summary['expense_total']
-
-    return jsonify(summary)
+        'recurring_count': int(recurring_count),
+        'pending_count': int(pending_count),
+        'consolidated_count': int(consolidated_count),
+    })
 
 
 @accounts_bp.route('/api/accounts/<int:account_id>', methods=['GET'])
