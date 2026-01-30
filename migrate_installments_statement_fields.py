@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """Migração: adicionar colunas de fatura (statement) e auditoria de antecipação em installments.
 
-Motivação:
-- Evitar ambiguidade de "em qual fatura esta parcela cai".
-- Permitir antecipar parcelas futuras (trazer para a fatura atual/ próxima) de forma auditável.
-
 Execute uma vez após dar pull:
   python migrate_installments_statement_fields.py
 
-Este projeto usa SQLite.
-O script é idempotente (se as colunas existirem, ele pula) e tenta fazer backfill.
+Notas:
+- Este script depende de as tabelas existirem (models carregadas + create_all).
+- Para tornar mais robusto, ele garante db.create_all() antes de tentar ALTER.
 """
 
 from datetime import datetime
@@ -17,7 +14,7 @@ from calendar import monthrange
 
 from app import app
 from database import db
-from models import Installment, Transaction, CreditCard
+from models import Transaction, CreditCard
 from sqlalchemy import text
 from dateutil.relativedelta import relativedelta
 import sys
@@ -33,7 +30,6 @@ def _add_column_if_missing(table: str, col: str, col_type_sql: str, existing_col
 
 
 def _compute_first_statement_for_transaction(card: CreditCard, tx_date: datetime):
-    # Se a compra ocorre no/apos fechamento do mês, cai na próxima fatura.
     closing_day = min(card.closing_day, monthrange(tx_date.year, tx_date.month)[1])
     closing_date = datetime(tx_date.year, tx_date.month, closing_day)
 
@@ -57,11 +53,17 @@ def migrate():
 
     with app.app_context():
         try:
+            # Garante que as tabelas existam antes do ALTER TABLE.
+            db.create_all()
+
             result = db.session.execute(text("PRAGMA table_info(installments)"))
             rows = result.fetchall()
             existing_cols = {row[1] for row in rows}
 
             print(f"\nColunas existentes: {sorted(existing_cols)}")
+
+            if not existing_cols:
+                return jsonify({'error': 'Tabela installments não encontrada. Verifique o banco e se models foram carregadas.'}), 500
 
             changed = False
             changed |= _add_column_if_missing('installments', 'statement_month', 'INTEGER', existing_cols)
@@ -86,7 +88,6 @@ def migrate():
 
             print("\nBackfill: preenchendo statement_month/year para parcelas antigas...")
 
-            # Backfill por transação: define fatura do 1º lançamento e deriva as demais por mês.
             txs = Transaction.query.all()
             backfilled = 0
 
@@ -110,7 +111,6 @@ def migrate():
                     if not inst.original_statement_year:
                         inst.original_statement_year = inst.statement_year
 
-                    # Ajustar due_date para o vencimento do cartão daquele statement (deixa consistente com UI)
                     inst.due_date = _invoice_due_date(card, inst.statement_month, inst.statement_year)
 
                     backfilled += 1

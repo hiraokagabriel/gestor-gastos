@@ -3,6 +3,11 @@ from database import db, init_db
 from routes import register_routes
 import os
 
+# Importa models ANTES de criar o app/banco para garantir que o SQLAlchemy
+# tenha todas as tabelas registradas no metadata antes do create_all().
+# (Caso contrário, o SQLite fica sem tabelas e qualquer migração/ALTER falha.)
+import models  # noqa: F401
+
 app = Flask(__name__)
 
 # Configurações

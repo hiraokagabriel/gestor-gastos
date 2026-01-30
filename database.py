@@ -10,12 +10,23 @@ def init_db(app):
         db.create_all()
         _ensure_accounts_recurrence_columns()
 
+def _table_exists(table_name: str) -> bool:
+    row = db.session.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name=:name"),
+        {"name": table_name}
+    ).fetchone()
+    return row is not None
+
 def _ensure_accounts_recurrence_columns():
     """
     Garante colunas necessárias para recorrência em 'accounts' (SQLite).
     Idempotente: se já existir, não faz nada.
     """
     try:
+        # Se as models ainda não foram carregadas, a tabela pode não existir.
+        if not _table_exists('accounts'):
+            return
+
         rows = db.session.execute(text("PRAGMA table_info(accounts)")).fetchall()
         cols = {row[1] for row in rows}
 
