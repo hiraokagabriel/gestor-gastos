@@ -16,6 +16,9 @@
         </div>
     </div>
 
+    <!-- Chip de filtro ativo (card) -->
+    <div id="activeFilters" class="mb-2" style="display:none;"></div>
+
     <!-- Tabs por status -->
     <ul class="nav nav-tabs" id="invoiceTabs" role="tablist">
         <li class="nav-item" role="presentation">
@@ -260,10 +263,10 @@ function _render(listElId, emptyElId, data) {
 
 function _activateTab(tabName) {
     const map = {
-        open: { btn: 'tab-open', pane: 'pane-open' },
-        closed: { btn: 'tab-closed', pane: 'pane-closed' },
-        paid: { btn: 'tab-paid', pane: 'pane-paid' },
-        history: { btn: 'tab-history', pane: 'pane-history' }
+        open: { btn: 'tab-open' },
+        closed: { btn: 'tab-closed' },
+        paid: { btn: 'tab-paid' },
+        history: { btn: 'tab-history' }
     };
 
     const t = map[tabName];
@@ -286,8 +289,34 @@ function _getQS() {
     };
 }
 
+function _renderActiveFilters(qs, sampleCardName) {
+    const wrap = document.getElementById('activeFilters');
+    if (!wrap) return;
+
+    if (!qs.card_id) {
+        wrap.style.display = 'none';
+        wrap.innerHTML = '';
+        return;
+    }
+
+    const name = sampleCardName || `Cartão #${qs.card_id}`;
+
+    // Mantém month/year/tab, remove card_id
+    const url = new URL(window.location.href);
+    url.searchParams.delete('card_id');
+
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+        <span class="badge bg-info text-dark me-2">
+            Filtrando: ${name}
+        </span>
+        <a class="btn btn-sm btn-outline-secondary" href="${url.pathname}?${url.searchParams.toString()}">
+            Limpar filtro
+        </a>
+    `;
+}
+
 async function loadCurrent() {
-    // Abertas/Fechadas/Pagas: por padrão mês atual, mas se vier month/year, usa eles.
     const now = new Date();
     const qs = _getQS();
 
@@ -302,7 +331,10 @@ async function loadCurrent() {
     _render('closedList', 'closedEmpty', grouped.closed);
     _render('paidList', 'paidEmpty', grouped.paid);
 
-    // Se a URL pediu history, carrega a lista do histórico nesse mês/ano
+    // Exibir chip de filtro usando o nome vindo do payload (primeiro item basta)
+    const sampleCardName = (all && all.length > 0 && all[0].card && all[0].card.name) ? all[0].card.name : null;
+    _renderActiveFilters(qs, sampleCardName);
+
     if (qs.tab === 'history') {
         document.getElementById('historyMonth').value = String(month);
         document.getElementById('historyYear').value = String(year);
@@ -386,7 +418,6 @@ function showDetails(item) {
         meta.innerHTML = '<div class="text-muted">Sem fatura gerada.</div>';
     }
 
-    // Compactar por compra (transaction_id)
     const tbody = document.getElementById('detailsBody');
     tbody.innerHTML = '';
 
