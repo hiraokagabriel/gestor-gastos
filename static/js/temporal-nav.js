@@ -9,10 +9,12 @@ if (isCalendarPage()) {
     // Página do calendário - não carregar navegação temporal
     console.log('Página do calendário detectada - temporal-nav desabilitado');
 } else {
-    // Outras páginas - carregar normalmente
+    // Outras páginas - carregar normalmente (se os elementos existirem)
     if (typeof viewingMonth === 'undefined') {
-        var viewingMonth = new Date().getMonth() + 1;
-        var viewingYear = new Date().getFullYear();
+        var viewingMonth = new Date().getMonth() + 1;   // aplicado
+        var viewingYear = new Date().getFullYear();     // aplicado
+        var pendingMonth = viewingMonth;               // selecionado (ainda não aplicado)
+        var pendingYear = viewingYear;                 // selecionado (ainda não aplicado)
         var currentMonth = new Date().getMonth() + 1;
         var currentYear = new Date().getFullYear();
     }
@@ -22,16 +24,47 @@ if (isCalendarPage()) {
             'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
     }
 
+    function _fmtMonthYear(month, year) {
+        return `${monthNamesGlobal[month]}/${year}`;
+    }
+
+    function _pendingDiffersFromApplied() {
+        return pendingMonth !== viewingMonth || pendingYear !== viewingYear;
+    }
+
     async function updateTemporalNav() {
         const display = document.getElementById('temporalMonthDisplay');
         const alert = document.getElementById('temporalAlert');
         const balanceSection = document.getElementById('projectedBalanceSection');
-        
-        if (display) {
-            display.textContent = `${monthNamesGlobal[viewingMonth]}/${viewingYear}`;
+
+        const applyBtn = document.getElementById('temporalApplyBtn');
+        const appliedHint = document.getElementById('temporalAppliedHint');
+        const appliedDisplay = document.getElementById('temporalAppliedDisplay');
+
+        // Se não existe a barra (contextual por tela), não faz nada.
+        if (!display) {
+            return;
         }
-        
-        // Mostrar alerta se não estiver no mês atual
+
+        // Badge mostra o período selecionado (não aplicado ainda)
+        display.textContent = _fmtMonthYear(pendingMonth, pendingYear);
+
+        // Hints e botões (modo filtro explícito)
+        const dirty = _pendingDiffersFromApplied();
+        if (applyBtn) {
+            applyBtn.disabled = !dirty;
+        }
+
+        if (appliedHint && appliedDisplay) {
+            if (dirty) {
+                appliedDisplay.textContent = _fmtMonthYear(viewingMonth, viewingYear);
+                appliedHint.style.display = 'inline';
+            } else {
+                appliedHint.style.display = 'none';
+            }
+        }
+
+        // Alerta só quando a data APLICADA não é o mês atual
         if (alert) {
             if (viewingMonth !== currentMonth || viewingYear !== currentYear) {
                 alert.style.display = 'block';
@@ -39,9 +72,10 @@ if (isCalendarPage()) {
                 alert.style.display = 'none';
             }
         }
-        
-        // Carregar saldo projetado
-        if (balanceSection && (viewingMonth !== currentMonth || viewingYear !== currentYear)) {
+
+        // Saldo projetado: baseado no período APLICADO.
+        // Se há alteração pendente, não mostra projeção "do mês novo" até aplicar.
+        if (balanceSection && (viewingMonth !== currentMonth || viewingYear !== currentYear) && !dirty) {
             await loadProjectedBalance();
         } else if (balanceSection) {
             balanceSection.style.display = 'none';
@@ -51,14 +85,14 @@ if (isCalendarPage()) {
     async function loadProjectedBalance() {
         const balanceSection = document.getElementById('projectedBalanceSection');
         if (!balanceSection) return;
-        
+
         try {
             const response = await fetch(`/invoices/api/projected-balance?month=${viewingMonth}&year=${viewingYear}`);
             const data = await response.json();
-            
+
             const isPositive = data.projected_balance >= 0;
             const prevMonthName = viewingMonth === 1 ? 'Dezembro' : monthNamesGlobal[viewingMonth - 1];
-            
+
             balanceSection.innerHTML = `
                 <div class="alert alert-info shadow-sm">
                     <h6 class="alert-heading">
@@ -97,44 +131,10 @@ if (isCalendarPage()) {
         }
     }
 
-    window.prevMonth = function() {
-        viewingMonth--;
-        if (viewingMonth < 1) {
-            viewingMonth = 12;
-            viewingYear--;
-        }
-        updateTemporalNav();
-        saveViewingDate();
-        reloadPageData();
-    };
-
-    window.nextMonth = function() {
-        viewingMonth++;
-        if (viewingMonth > 12) {
-            viewingMonth = 1;
-            viewingYear++;
-        }
-        updateTemporalNav();
-        saveViewingDate();
-        reloadPageData();
-    };
-
-    window.goToToday = function() {
-        viewingMonth = currentMonth;
-        viewingYear = currentYear;
-        updateTemporalNav();
-        
-        fetch('/invoices/api/reset-viewing-date', {
-            method: 'POST'
-        }).then(() => {
-            reloadPageData();
-        }).catch(err => console.error('Erro ao resetar data:', err));
-    };
-
     function saveViewingDate() {
-        fetch('/invoices/api/set-viewing-date', {
+        return fetch('/invoices/api/set-viewing-date', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 month: viewingMonth,
                 year: viewingYear
@@ -150,20 +150,69 @@ if (isCalendarPage()) {
         if (typeof loadDashboard === 'function') loadDashboard();
     }
 
+    // Setas mudam só o período SELECIONADO (não aplica imediatamente)
+    window.prevMonth = function() {
+        pendingMonth--;
+        if (pendingMonth < 1) {
+            pendingMonth = 12;
+            pendingYear--;
+        }
+        updateTemporalNav();
+    };
+
+    window.nextMonth = function() {
+        pendingMonth++;
+        if (pendingMonth > 12) {
+            pendingMonth = 1;
+            pendingYear++;
+        }
+        updateTemporalNav();
+    };
+
+    // Aplicar filtro (persistir no servidor e recarregar dados)
+    window.applyViewingDate = function() {
+        viewingMonth = pendingMonth;
+        viewingYear = pendingYear;
+
+        updateTemporalNav();
+        saveViewingDate().finally(() => {
+            reloadPageData();
+        });
+    };
+
+    // Limpar (voltar para hoje) e aplicar imediatamente
+    window.clearViewingDate = function() {
+        viewingMonth = currentMonth;
+        viewingYear = currentYear;
+        pendingMonth = currentMonth;
+        pendingYear = currentYear;
+
+        updateTemporalNav();
+
+        fetch('/invoices/api/reset-viewing-date', {
+            method: 'POST'
+        }).then(() => {
+            reloadPageData();
+        }).catch(err => console.error('Erro ao resetar data:', err));
+    };
+
     // Carregar data visualizada ao iniciar
     async function loadViewingDate() {
-        // Verificar se os elementos existem antes de tentar carregá-los
         const display = document.getElementById('temporalMonthDisplay');
         if (!display) {
-            console.log('Elementos de navegação temporal não encontrados');
+            // Barra não existe nesta tela
             return;
         }
-        
+
         try {
             const response = await fetch('/invoices/api/get-viewing-date');
             const data = await response.json();
+
             viewingMonth = data.viewing_month;
             viewingYear = data.viewing_year;
+            pendingMonth = viewingMonth;
+            pendingYear = viewingYear;
+
             await updateTemporalNav();
         } catch (error) {
             console.error('Erro ao carregar data:', error);

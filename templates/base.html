@@ -87,7 +87,9 @@
         </div>
     </nav>
 
-    <!-- Barra de Navegação Temporal (oculta na página do calendário) -->
+    {% set show_temporal_nav = request.endpoint in ['dashboard.index', 'invoices.index', 'bills.index', 'accounts.index'] %}
+    {% if show_temporal_nav %}
+    <!-- Barra de Navegação Temporal (contextual por tela) -->
     <div class="bg-light border-bottom py-2 temporal-navigation">
         <div class="container-fluid">
             <div class="row align-items-center">
@@ -100,21 +102,27 @@
                     </div>
                 </div>
                 <div class="col-md-6">
-                    <div class="d-flex align-items-center justify-content-end gap-2">
+                    <div class="d-flex align-items-center justify-content-end gap-2 flex-wrap">
                         <span class="text-muted">
-                            <i class="fas fa-eye"></i> <strong>Visualizando:</strong>
+                            <i class="fas fa-eye"></i> <strong>Período:</strong>
                         </span>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="prevMonth()">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="prevMonth()" title="Mês anterior">
                             <i class="fas fa-chevron-left"></i>
                         </button>
                         <span class="badge bg-primary" id="temporalMonthDisplay" style="min-width: 120px; font-size: 0.9rem;">
                             Carregando...
                         </span>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="nextMonth()">
+                        <span class="text-muted small" id="temporalAppliedHint" style="display: none;">
+                            (aplicado: <span id="temporalAppliedDisplay"></span>)
+                        </span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="nextMonth()" title="Próximo mês">
                             <i class="fas fa-chevron-right"></i>
                         </button>
-                        <button class="btn btn-sm btn-primary" onclick="goToToday()">
-                            <i class="fas fa-home"></i> Hoje
+                        <button class="btn btn-sm btn-success" id="temporalApplyBtn" onclick="applyViewingDate()" disabled>
+                            <i class="fas fa-check"></i> Aplicar
+                        </button>
+                        <button class="btn btn-sm btn-primary" id="temporalClearBtn" onclick="clearViewingDate()">
+                            <i class="fas fa-home"></i> Limpar
                         </button>
                     </div>
                 </div>
@@ -124,7 +132,7 @@
             <div id="temporalAlert" class="alert alert-warning alert-sm mt-2 mb-0" style="display: none; padding: 0.5rem;">
                 <i class="fas fa-exclamation-triangle"></i> 
                 <strong>Modo Simulação Ativo</strong> - Você está visualizando dados de outro período.
-                <button class="btn btn-sm btn-warning ms-2" onclick="goToToday()">
+                <button class="btn btn-sm btn-warning ms-2" onclick="clearViewingDate()">
                     Voltar para Hoje
                 </button>
             </div>
@@ -135,6 +143,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Main Content -->
     <main class="{% if request.endpoint == 'calendar.index' %}container-fluid{% else %}container-fluid{% endif %} my-4">
