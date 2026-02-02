@@ -233,8 +233,10 @@ function _groupByStatus(invoices) {
     return { open, closed, paid };
 }
 
-async function _fetchInvoices(month, year, status) {
+async function _fetchInvoices(month, year, status, cardId) {
     const qs = new URLSearchParams({ month, year, status });
+    if (cardId) qs.set('card_id', String(cardId));
+
     const r = await fetch(`/invoices/api/invoices?${qs.toString()}`);
     if (!r.ok) throw new Error('Erro ao carregar faturas');
     return await r.json();
@@ -256,18 +258,58 @@ function _render(listElId, emptyElId, data) {
     });
 }
 
-async function loadCurrent() {
-    // “Abertas/Fechadas/Pagas” por padrão: mês atual
-    const now = new Date();
-    const month = now.getMonth() + 1;
-    const year = now.getFullYear();
+function _activateTab(tabName) {
+    const map = {
+        open: { btn: 'tab-open', pane: 'pane-open' },
+        closed: { btn: 'tab-closed', pane: 'pane-closed' },
+        paid: { btn: 'tab-paid', pane: 'pane-paid' },
+        history: { btn: 'tab-history', pane: 'pane-history' }
+    };
 
-    const all = await _fetchInvoices(month, year, 'all');
+    const t = map[tabName];
+    if (!t) return;
+
+    const btn = document.getElementById(t.btn);
+    if (!btn) return;
+
+    const tab = new bootstrap.Tab(btn);
+    tab.show();
+}
+
+function _getQS() {
+    const p = new URLSearchParams(window.location.search);
+    return {
+        tab: p.get('tab') || 'open',
+        month: p.get('month'),
+        year: p.get('year'),
+        card_id: p.get('card_id')
+    };
+}
+
+async function loadCurrent() {
+    // Abertas/Fechadas/Pagas: por padrão mês atual, mas se vier month/year, usa eles.
+    const now = new Date();
+    const qs = _getQS();
+
+    const month = parseInt(qs.month || String(now.getMonth() + 1));
+    const year = parseInt(qs.year || String(now.getFullYear()));
+    const cardId = qs.card_id ? parseInt(qs.card_id) : null;
+
+    const all = await _fetchInvoices(month, year, 'all', cardId);
     const grouped = _groupByStatus(all);
 
     _render('openList', 'openEmpty', grouped.open);
     _render('closedList', 'closedEmpty', grouped.closed);
     _render('paidList', 'paidEmpty', grouped.paid);
+
+    // Se a URL pediu history, carrega a lista do histórico nesse mês/ano
+    if (qs.tab === 'history') {
+        document.getElementById('historyMonth').value = String(month);
+        document.getElementById('historyYear').value = String(year);
+        await loadHistory();
+    }
+
+    _activateTab(qs.tab);
 }
 
 function _fillHistorySelectors() {
@@ -299,8 +341,10 @@ function _fillHistorySelectors() {
 async function loadHistory() {
     const month = parseInt(document.getElementById('historyMonth').value);
     const year = parseInt(document.getElementById('historyYear').value);
+    const qs = _getQS();
+    const cardId = qs.card_id ? parseInt(qs.card_id) : null;
 
-    const all = await _fetchInvoices(month, year, 'all');
+    const all = await _fetchInvoices(month, year, 'all', cardId);
 
     const listEl = document.getElementById('historyList');
     const emptyEl = document.getElementById('historyEmpty');

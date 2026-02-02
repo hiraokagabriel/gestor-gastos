@@ -116,18 +116,23 @@ def reset_viewing_date():
 
 @invoices_bp.route('/api/invoices', methods=['GET'])
 def get_invoices():
-    """Lista faturas de todos os cartões"""
+    """Lista faturas (por mês/ano) e permite filtrar por status e card_id."""
     try:
         month = request.args.get('month', type=int)
         year = request.args.get('year', type=int)
         status_filter = request.args.get('status')  # open|closed|paid|all
+        card_id = request.args.get('card_id', type=int)
 
         if not month or not year:
             today = datetime.now()
             month = session.get('viewing_month', today.month)
             year = session.get('viewing_year', today.year)
 
-        cards = CreditCard.query.filter_by(active=True).all()
+        cards_q = CreditCard.query.filter_by(active=True)
+        if card_id:
+            cards_q = cards_q.filter(CreditCard.id == card_id)
+
+        cards = cards_q.all()
         invoices_data = []
 
         for card in cards:
