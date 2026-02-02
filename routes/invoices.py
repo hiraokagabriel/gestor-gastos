@@ -23,10 +23,35 @@ def _invoice_due_date(card: CreditCard, month: int, year: int) -> datetime:
     return datetime(year, month, days_in_month) + timedelta(days=overflow)
 
 
+def _closing_date(card: CreditCard, month: int, year: int) -> datetime:
+    cd = min(card.closing_day, monthrange(year, month)[1])
+    return datetime(year, month, cd)
+
+
+def _sync_invoice_status(invoice: Invoice):
+    """Garante status coerente baseado na data de fechamento.
+
+    - paid nunca é alterado aqui.
+    - open vira closed quando passar do fechamento.
+    """
+    if not invoice:
+        return
+
+    if invoice.status == 'paid':
+        return
+
+    close_dt = _closing_date(invoice.card, invoice.month, invoice.year)
+    if datetime.now() >= close_dt:
+        invoice.status = 'closed'
+    else:
+        invoice.status = 'open'
+
+
 @invoices_bp.route('/')
 def index():
     """Página principal de faturas"""
     return render_template('invoices.html')
+
 
 @invoices_bp.route('/api/set-viewing-date', methods=['POST'])
 def set_viewing_date():
@@ -49,6 +74,7 @@ def set_viewing_date():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @invoices_bp.route('/api/get-viewing-date', methods=['GET'])
 def get_viewing_date():
     """Retorna a data que o usuário está visualizando"""
@@ -68,6 +94,7 @@ def get_viewing_date():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @invoices_bp.route('/api/reset-viewing-date', methods=['POST'])
 def reset_viewing_date():
     """Volta para a data atual (hoje)"""
@@ -86,93 +113,6 @@ def reset_viewing_date():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@invoices_bp.route('/api/projected-balance', methods=['GET'])
-def get_projected_balance():
-    """Calcula saldo projetado se pagar todas as faturas até o mês anterior"""
-    try:
-        month = request.args.get('month', type=int)
-        year = request.args.get('year', type=int)
-
-        if not month or not year:
-            today = datetime.now()
-            month = session.get('viewing_month', today.month)
-            year = session.get('viewing_year', today.year)
-
-        today = datetime.now()
-        current_month = today.month
-        current_year = today.year
-
-        current_balance = 0.0
-
-        incomes = Account.query.filter(
-            Account.type == 'income',
-            Account.date <= datetime.now()
-        ).all()
-        current_balance += sum(acc.amount for acc in incomes)
-
-        expenses = Account.query.filter(
-            Account.type == 'expense',
-            Account.date <= datetime.now()
-        ).all()
-        current_balance -= sum(acc.amount for acc in expenses)
-
-        paid_invoices = Invoice.query.filter(
-            Invoice.status == 'paid'
-        ).all()
-        current_balance -= sum(inv.amount for inv in paid_invoices)
-
-        paid_bills = Bill.query.filter(
-            Bill.paid == True
-        ).all()
-        current_balance -= sum(bill.amount for bill in paid_bills)
-
-        total_to_pay = 0.0
-
-        prev_month = month - 1 if month > 1 else 12
-        prev_year = year if month > 1 else year - 1
-
-        temp_month = current_month
-        temp_year = current_year
-
-        while (temp_year < prev_year) or (temp_year == prev_year and temp_month <= prev_month):
-            invoices = Invoice.query.filter_by(
-                month=temp_month,
-                year=temp_year,
-                status='open'
-            ).all()
-            total_to_pay += sum(inv.amount for inv in invoices)
-
-            first_day = datetime(temp_year, temp_month, 1)
-            last_day = datetime(temp_year, temp_month, monthrange(temp_year, temp_month)[1])
-
-            bills = Bill.query.filter(
-                Bill.paid == False,
-                Bill.due_date >= first_day,
-                Bill.due_date <= last_day
-            ).all()
-            total_to_pay += sum(bill.amount for bill in bills)
-
-            temp_month += 1
-            if temp_month > 12:
-                temp_month = 1
-                temp_year += 1
-
-        projected_balance = current_balance - total_to_pay
-
-        return jsonify({
-            'current_balance': round(current_balance, 2),
-            'total_to_pay': round(total_to_pay, 2),
-            'projected_balance': round(projected_balance, 2),
-            'viewing_month': month,
-            'viewing_year': year,
-            'current_month': current_month,
-            'current_year': current_year
-        })
-
-    except Exception as e:
-        print(f"Erro em get_projected_balance: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
 
 @invoices_bp.route('/api/invoices', methods=['GET'])
 def get_invoices():
@@ -180,76 +120,80 @@ def get_invoices():
     try:
         month = request.args.get('month', type=int)
         year = request.args.get('year', type=int)
+        status_filter = request.args.get('status')  # open|closed|paid|all
 
         if not month or not year:
             today = datetime.now()
             month = session.get('viewing_month', today.month)
             year = session.get('viewing_year', today.year)
 
-        print(f"Buscando faturas para {month}/{year}")
-
         cards = CreditCard.query.filter_by(active=True).all()
         invoices_data = []
 
         for card in cards:
-            try:
-                amount = card.get_bill_for_month(month, year)
-                print(f"Cartão {card.name}: R$ {amount}")
+            amount = card.get_bill_for_month(month, year)
 
-                invoice = Invoice.query.filter_by(
+            invoice = Invoice.query.filter_by(
+                card_id=card.id,
+                month=month,
+                year=year
+            ).first()
+
+            if not invoice and amount > 0:
+                invoice = Invoice(
                     card_id=card.id,
                     month=month,
-                    year=year
-                ).first()
+                    year=year,
+                    amount=amount,
+                    due_date=_invoice_due_date(card, month, year),
+                    status='open'
+                )
+                db.session.add(invoice)
+                db.session.flush()
 
-                if not invoice and amount > 0:
-                    invoice = Invoice(
-                        card_id=card.id,
-                        month=month,
-                        year=year,
-                        amount=amount,
-                        due_date=_invoice_due_date(card, month, year),
-                        status='open'
-                    )
-                    db.session.add(invoice)
-                    db.session.commit()
-                elif invoice:
-                    if invoice.amount != amount:
-                        invoice.amount = amount
-                        db.session.commit()
+            if invoice:
+                if invoice.amount != amount:
+                    invoice.amount = amount
 
-                if invoice or amount > 0:
-                    installments = Installment.query.join(Transaction).filter(
-                        Transaction.card_id == card.id,
-                        Installment.statement_month == month,
-                        Installment.statement_year == year
-                    ).all()
+                _sync_invoice_status(invoice)
 
-                    installments_data = []
-                    for inst in installments:
-                        inst_dict = inst.to_dict()
-                        inst_dict['transaction_id'] = inst.transaction_id
-                        inst_dict['description'] = inst.transaction.description
-                        installments_data.append(inst_dict)
+            # status filtering (por status real, não por label)
+            if status_filter and status_filter not in ('all', ''):
+                if not invoice:
+                    continue
+                if invoice.status != status_filter:
+                    continue
 
-                    invoices_data.append({
-                        'invoice': invoice.to_dict() if invoice else None,
-                        'card': card.to_dict(),
-                        'amount': amount,
-                        'installments_count': len(installments),
-                        'installments': installments_data
-                    })
-            except Exception as card_error:
-                print(f"Erro ao processar cartão {card.name}: {str(card_error)}")
-                traceback.print_exc()
-                continue
+            if invoice or amount > 0:
+                installments = Installment.query.join(Transaction).filter(
+                    Transaction.card_id == card.id,
+                    Installment.statement_month == month,
+                    Installment.statement_year == year
+                ).all()
 
+                installments_data = []
+                for inst in installments:
+                    inst_dict = inst.to_dict()
+                    inst_dict['transaction_id'] = inst.transaction_id
+                    inst_dict['description'] = inst.transaction.description
+                    installments_data.append(inst_dict)
+
+                invoices_data.append({
+                    'invoice': invoice.to_dict() if invoice else None,
+                    'card': card.to_dict(),
+                    'amount': amount,
+                    'installments_count': len(installments),
+                    'installments': installments_data
+                })
+
+        db.session.commit()
         return jsonify(invoices_data)
 
     except Exception as e:
         print(f"Erro geral em get_invoices: {str(e)}")
         traceback.print_exc()
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
 
 @invoices_bp.route('/api/invoices/<int:invoice_id>/pay', methods=['POST'])
 def pay_invoice(invoice_id):
@@ -278,6 +222,7 @@ def pay_invoice(invoice_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @invoices_bp.route('/api/invoices/<int:invoice_id>/unpay', methods=['POST'])
 def unpay_invoice(invoice_id):
     """Desmarca uma fatura como paga (despagar)"""
@@ -296,6 +241,7 @@ def unpay_invoice(invoice_id):
             inst.paid = False
             inst.paid_date = None
 
+        _sync_invoice_status(invoice)
         db.session.commit()
 
         return jsonify(invoice.to_dict())
@@ -304,9 +250,13 @@ def unpay_invoice(invoice_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @invoices_bp.route('/api/timeline', methods=['GET'])
 def get_timeline():
-    """Retorna timeline de faturas (12 meses)"""
+    """Retorna timeline de faturas (12 meses)
+
+    Mantido por compatibilidade (UI antiga).
+    """
     try:
         today = datetime.now()
         current_month = today.month
@@ -325,37 +275,96 @@ def get_timeline():
                 month -= 12
                 year += 1
 
-            try:
-                cards = CreditCard.query.filter_by(active=True).all()
-                total_month = 0
-                for card in cards:
-                    try:
-                        total_month += card.get_bill_for_month(month, year)
-                    except Exception as card_error:
-                        print(f"Erro ao calcular fatura do cartão {card.name} para {month}/{year}: {str(card_error)}")
-                        continue
+            cards = CreditCard.query.filter_by(active=True).all()
+            total_month = 0
+            for card in cards:
+                total_month += card.get_bill_for_month(month, year)
 
-                invoices = Invoice.query.filter_by(month=month, year=year).all()
-                all_paid = len(invoices) > 0 and all(inv.status == 'paid' for inv in invoices)
+            invoices = Invoice.query.filter_by(month=month, year=year).all()
+            all_paid = len(invoices) > 0 and all(inv.status == 'paid' for inv in invoices)
 
-                month_names = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+            month_names = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
-                timeline.append({
-                    'month': month,
-                    'year': year,
-                    'month_name': month_names[month],
-                    'amount': total_month,
-                    'is_current': month == current_month and year == current_year,
-                    'is_past': year < current_year or (year == current_year and month < current_month),
-                    'is_paid': all_paid
-                })
-            except Exception as month_error:
-                print(f"Erro ao processar mês {month}/{year}: {str(month_error)}")
-                traceback.print_exc()
-                continue
+            timeline.append({
+                'month': month,
+                'year': year,
+                'month_name': month_names[month],
+                'amount': total_month,
+                'is_current': month == current_month and year == current_year,
+                'is_past': year < current_year or (year == current_year and month < current_month),
+                'is_paid': all_paid
+            })
 
         return jsonify(timeline)
     except Exception as e:
         print(f"Erro geral em get_timeline: {str(e)}")
         traceback.print_exc()
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@invoices_bp.route('/api/agenda', methods=['GET'])
+def agenda():
+    """Agenda/planner: próximos vencimentos (faturas + bills).
+
+    MVP: retorna itens até N dias a partir de hoje.
+    """
+    try:
+        days = request.args.get('days', default=15, type=int)
+        if days < 1:
+            days = 15
+
+        start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=days)
+
+        items = []
+
+        # Faturas: considerar open/closed (não pagas)
+        invoices = Invoice.query.filter(
+            Invoice.status.in_(['open', 'closed']),
+            Invoice.due_date >= start,
+            Invoice.due_date <= end
+        ).all()
+
+        for inv in invoices:
+            _sync_invoice_status(inv)
+            items.append({
+                'type': 'invoice',
+                'date': inv.due_date.strftime('%Y-%m-%d'),
+                'title': f"Fatura {inv.card.name}",
+                'amount': float(inv.amount),
+                'status': inv.status,
+                'invoice_id': inv.id,
+                'card_id': inv.card_id
+            })
+
+        # Bills
+        bills = Bill.query.filter(
+            Bill.paid == False,
+            Bill.due_date >= start,
+            Bill.due_date <= end
+        ).all()
+
+        for b in bills:
+            items.append({
+                'type': 'bill',
+                'date': b.due_date.strftime('%Y-%m-%d'),
+                'title': b.description,
+                'amount': float(b.amount),
+                'status': 'paid' if b.paid else 'open',
+                'bill_id': b.id
+            })
+
+        db.session.commit()
+        items.sort(key=lambda x: x['date'])
+
+        return jsonify({
+            'range_days': days,
+            'start': start.strftime('%Y-%m-%d'),
+            'end': end.strftime('%Y-%m-%d'),
+            'items': items
+        })
+
+    except Exception as e:
+        print(f"Erro em agenda: {str(e)}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500

@@ -4,6 +4,7 @@ from sqlalchemy import func
 from calendar import monthrange
 from dateutil.relativedelta import relativedelta
 
+
 class CreditCard(db.Model):
     """Modelo para Cartões de Crédito"""
     __tablename__ = 'credit_cards'
@@ -85,6 +86,7 @@ class CreditCard(db.Model):
             'expiry_year': self.expiry_year,
             'active': self.active
         }
+
 
 class Transaction(db.Model):
     """Modelo para Transações de Cartão"""
@@ -188,6 +190,7 @@ class Transaction(db.Model):
             'installments': [inst.to_dict() for inst in self.installments]
         }
 
+
 class Installment(db.Model):
     """Modelo para Parcelas"""
     __tablename__ = 'installments'
@@ -233,6 +236,7 @@ class Installment(db.Model):
             'anticipated_from_year': self.anticipated_from_year,
         }
 
+
 class Invoice(db.Model):
     """Modelo para Faturas de Cartão"""
     __tablename__ = 'invoices'
@@ -243,22 +247,38 @@ class Invoice(db.Model):
     year = db.Column(db.Integer, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     due_date = db.Column(db.DateTime, nullable=False)
+
+    # open: ciclo atual (entra compra)
+    # closed: ciclo encerrado (não entra compra), aguardando pagamento
+    # paid: pago
     status = db.Column(db.String(20), default='open')
     paid_date = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    def _closing_date(self) -> datetime:
+        """Data de fechamento (do mês/ano da fatura) conforme closing_day do cartão."""
+        cd = min(self.card.closing_day, monthrange(self.year, self.month)[1])
+        return datetime(self.year, self.month, cd)
+
+    def days_to_due(self) -> int:
+        return (self.due_date.date() - datetime.now().date()).days
+
+    def days_to_close(self) -> int:
+        return (self._closing_date().date() - datetime.now().date()).days
+
     def to_dict(self):
         today = datetime.now()
-        reference_date = datetime(self.year, self.month, 1)
 
         if self.status == 'paid':
             status_label = 'PAGA'
-        elif reference_date.year < today.year or (reference_date.year == today.year and reference_date.month < today.month):
-            status_label = 'ATRASADA'
-        elif reference_date.year == today.year and reference_date.month == today.month:
-            status_label = 'ATUAL'
+        elif self.status == 'closed':
+            status_label = 'FECHADA'
         else:
-            status_label = 'FUTURA'
+            # open
+            if self.due_date.date() < today.date():
+                status_label = 'ATRASADA'
+            else:
+                status_label = 'ABERTA'
 
         return {
             'id': self.id,
@@ -267,10 +287,14 @@ class Invoice(db.Model):
             'year': self.year,
             'amount': self.amount,
             'due_date': self.due_date.strftime('%Y-%m-%d'),
+            'closing_date': self._closing_date().strftime('%Y-%m-%d'),
+            'days_to_due': self.days_to_due(),
+            'days_to_close': self.days_to_close(),
             'status': self.status,
             'status_label': status_label,
             'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None
         }
+
 
 class Bill(db.Model):
     """Modelo para Boletos"""
@@ -314,6 +338,7 @@ class Bill(db.Model):
             'status': self.status,
             'is_overdue': self.is_overdue
         }
+
 
 class Account(db.Model):
     """Modelo para Contas Gerais (Lançamentos)"""
@@ -424,6 +449,7 @@ class Account(db.Model):
             'children_count': self.children.count() if self.recurring else 0
         }
 
+
 class Category(db.Model):
     """Modelo para Categorias"""
     __tablename__ = 'categories'
@@ -440,6 +466,7 @@ class Category(db.Model):
             'type': self.type,
             'color': self.color
         }
+
 
 class Notification(db.Model):
     """Modelo para Notificações"""
