@@ -129,13 +129,28 @@ function _badgeFor(item) {
     return '<span class="badge bg-secondary">Boleto</span>';
 }
 
+function _invoiceLink(item) {
+    // Navegação direta: abre a tela /invoices já na aba correta (open/closed)
+    // e pré-seleciona o mês/ano da fatura (baseado na data de vencimento).
+    const [y, m] = (item.date || '').split('-');
+    const tab = (item.status === 'closed') ? 'closed' : 'open';
+
+    const qs = new URLSearchParams({
+        tab,
+        month: m,
+        year: y,
+        card_id: item.card_id || ''
+    });
+
+    return `/invoices?${qs.toString()}`;
+}
+
 function _actionButtons(item) {
     if (item.type === 'invoice') {
-        // MVP: levar para tela de faturas
-        return `<a class="btn btn-sm btn-outline-primary" href="/invoices"><i class="fas fa-eye"></i> Abrir</a>`;
+        const href = _invoiceLink(item);
+        return `<a class="btn btn-sm btn-outline-primary" href="${href}"><i class="fas fa-eye"></i> Abrir</a>`;
     }
 
-    // Bill: por enquanto só abrir lista de bills (se existir). Caso não exista página, mantém sem ação.
     return '<span class="text-muted">—</span>';
 }
 
