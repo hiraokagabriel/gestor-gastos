@@ -268,6 +268,14 @@ function openTransactionModal(cardId) {
 
 async function openEditTransactionModal(transactionId, cardId) {
     try {
+        // Fechar o modal de "Ver Transações" antes de abrir o de edição,
+        // para evitar problema de stacking/z-index em Bootstrap.
+        const viewEl = document.getElementById('viewTransactionsModal');
+        const viewInstance = bootstrap.Modal.getInstance(viewEl);
+        if (viewInstance) {
+            viewInstance.hide();
+        }
+
         const response = await fetch(`/cards/api/transactions/${transactionId}`);
         const tx = await response.json();
 
@@ -280,7 +288,11 @@ async function openEditTransactionModal(transactionId, cardId) {
         document.getElementById('transactionInstallments').value = tx.installments_total || 1;
 
         document.getElementById('transactionModalTitle').textContent = 'Editar Compra';
-        new bootstrap.Modal(document.getElementById('transactionModal')).show();
+
+        // Pequeno delay para garantir que o backdrop do modal anterior foi removido.
+        setTimeout(() => {
+            new bootstrap.Modal(document.getElementById('transactionModal')).show();
+        }, 200);
     } catch (error) {
         console.error('Erro ao carregar transação:', error);
         showToast('Erro ao carregar transação', 'error');
