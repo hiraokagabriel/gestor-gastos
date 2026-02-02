@@ -215,6 +215,7 @@ if (isCalendarPage()) {
     };
 
     // Carregar data visualizada ao iniciar
+    // Novo comportamento: ao entrar em qualquer página que usa a barra, resetar para o mês vigente.
     async function loadViewingDate() {
         const display = document.getElementById('temporalMonthDisplay');
         if (!display) {
@@ -223,8 +224,15 @@ if (isCalendarPage()) {
         }
 
         try {
-            const response = await fetch('/invoices/api/get-viewing-date');
+            // Resetar período aplicado ao entrar na tela (evita levar mês antigo entre abas)
+            const response = await fetch('/invoices/api/reset-viewing-date', {
+                method: 'POST'
+            });
             const data = await response.json();
+
+            if (!data || !data.viewing_month || !data.viewing_year) {
+                throw new Error('Resposta inválida do reset-viewing-date');
+            }
 
             viewingMonth = data.viewing_month;
             viewingYear = data.viewing_year;
@@ -233,7 +241,22 @@ if (isCalendarPage()) {
 
             await updateTemporalNav();
         } catch (error) {
-            console.error('Erro ao carregar data:', error);
+            console.error('Erro ao resetar data ao carregar página:', error);
+
+            // Fallback: manter o comportamento antigo caso o reset falhe
+            try {
+                const response = await fetch('/invoices/api/get-viewing-date');
+                const data = await response.json();
+
+                viewingMonth = data.viewing_month;
+                viewingYear = data.viewing_year;
+                pendingMonth = viewingMonth;
+                pendingYear = viewingYear;
+
+                await updateTemporalNav();
+            } catch (e2) {
+                console.error('Erro ao carregar data (fallback):', e2);
+            }
         }
     }
 
