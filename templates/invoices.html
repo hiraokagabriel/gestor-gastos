@@ -4,394 +4,404 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="row mb-4">
+    <div class="row mb-3">
         <div class="col">
-            <h2><i class="fas fa-file-invoice-dollar"></i> Faturas dos Cartões</h2>
-            <p class="text-muted">Visualize e gerencie as faturas dos seus cartões</p>
+            <h2><i class="fas fa-file-invoice-dollar"></i> Faturas</h2>
+            <p class="text-muted mb-0">Acompanhe por status (aberta/fechada/paga) e veja prazos com clareza.</p>
+        </div>
+        <div class="col text-end">
+            <a class="btn btn-outline-secondary" href="/">
+                <i class="fas fa-calendar-alt"></i> Voltar para Agenda
+            </a>
         </div>
     </div>
 
-    <!-- Timeline de Faturas -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="fas fa-chart-line"></i> Linha do Tempo (12 meses)</h5>
-        </div>
-        <div class="card-body">
-            <div id="timeline" class="table-responsive">
-                <table class="table table-sm table-hover">
-                    <thead>
-                        <tr>
-                            <th>Mês</th>
-                            <th>Total</th>
-                            <th>Status</th>
-                            <th>Ação</th>
-                        </tr>
-                    </thead>
-                    <tbody id="timelineBody">
-                        <tr><td colspan="4" class="text-center">Carregando...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="text-muted small mt-2">
-                Dica: use <strong>Selecionar</strong> para escolher um período e clique em <strong>Aplicar</strong> na barra superior.
-            </div>
-        </div>
-    </div>
+    <!-- Tabs por status -->
+    <ul class="nav nav-tabs" id="invoiceTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-open" data-bs-toggle="tab" data-bs-target="#pane-open" type="button" role="tab">
+                Abertas
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-closed" data-bs-toggle="tab" data-bs-target="#pane-closed" type="button" role="tab">
+                Fechadas
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-paid" data-bs-toggle="tab" data-bs-target="#pane-paid" type="button" role="tab">
+                Pagas
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-history" data-bs-toggle="tab" data-bs-target="#pane-history" type="button" role="tab">
+                Histórico
+            </button>
+        </li>
+    </ul>
 
-    <!-- Lista de Faturas do Período Aplicado -->
-    <div class="row mb-4">
-        <div class="col">
-            <h4 id="currentMonthTitle">Faturas de <span id="monthDisplay"></span></h4>
-        </div>
-    </div>
-
-    <div id="invoicesList" class="row">
-        <div class="col-12 text-center">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Carregando...</span>
+    <div class="tab-content pt-3">
+        <!-- Abertas -->
+        <div class="tab-pane fade show active" id="pane-open" role="tabpanel">
+            <div id="openList" class="row"></div>
+            <div id="openEmpty" class="alert alert-info" style="display:none;">
+                <i class="fas fa-info-circle"></i> Nenhuma fatura aberta no período.
             </div>
         </div>
-    </div>
 
-    <div id="noInvoices" class="alert alert-info" style="display: none;">
-        <i class="fas fa-info-circle"></i> Nenhuma fatura encontrada para este período.
+        <!-- Fechadas -->
+        <div class="tab-pane fade" id="pane-closed" role="tabpanel">
+            <div id="closedList" class="row"></div>
+            <div id="closedEmpty" class="alert alert-info" style="display:none;">
+                <i class="fas fa-info-circle"></i> Nenhuma fatura fechada no período.
+            </div>
+        </div>
+
+        <!-- Pagas -->
+        <div class="tab-pane fade" id="pane-paid" role="tabpanel">
+            <div id="paidList" class="row"></div>
+            <div id="paidEmpty" class="alert alert-info" style="display:none;">
+                <i class="fas fa-info-circle"></i> Nenhuma fatura paga no período.
+            </div>
+        </div>
+
+        <!-- Histórico (mês/ano) -->
+        <div class="tab-pane fade" id="pane-history" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label">Mês</label>
+                            <select class="form-select" id="historyMonth"></select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Ano</label>
+                            <select class="form-select" id="historyYear"></select>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-primary w-100" onclick="loadHistory(); return false;">
+                                <i class="fas fa-search"></i> Carregar
+                            </button>
+                        </div>
+                    </div>
+                    <div class="text-muted small mt-2">Use o histórico para consultar um mês específico.</div>
+                </div>
+            </div>
+
+            <div id="historyList" class="row"></div>
+            <div id="historyEmpty" class="alert alert-info" style="display:none;">
+                <i class="fas fa-info-circle"></i> Nenhuma fatura para este mês/ano.
+            </div>
+        </div>
     </div>
 </div>
 
-<!-- Modal de Detalhes da Fatura -->
+<!-- Modal de Detalhes (compacto por compra) -->
 <div class="modal fade" id="invoiceDetailsModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Detalhes da Fatura</h5>
+                <h5 class="modal-title" id="invoiceDetailsTitle">Detalhes da Fatura</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <h6 class="mb-3">Parcelas incluídas nesta fatura:</h6>
+                <div id="invoiceMeta" class="mb-3"></div>
                 <div class="table-responsive">
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Descrição</th>
-                                <th>Valor Total</th>
-                                <th>Parcela</th>
-                                <th>Valor Parcela</th>
-                                <th>Vencimento</th>
+                                <th>Compra</th>
+                                <th class="text-end">Total</th>
+                                <th>Parcelas nesta fatura</th>
+                                <th class="text-end">Parcela</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
-                        <tbody id="installmentsTableBody">
-                            <!-- Preenchido via JavaScript -->
-                        </tbody>
+                        <tbody id="detailsBody"></tbody>
                     </table>
                 </div>
+                <div class="text-muted small">Clique em uma linha para ver as parcelas individuais (MVP: ainda não expande).</div>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-let currentInvoiceDetails = null;
+const monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
-const monthNamesLocal = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
-                    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-
-function _fmtMonthYearLocal(month, year) {
-    return `${monthNamesLocal[month]}/${year}`;
+function _fmtMoney(v) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 }
 
-async function _resolveAppliedViewingDate() {
-    // Preferir a fonte única do estado (temporal-nav.js)
-    if (window.getAppliedViewingDate) {
-        const d = window.getAppliedViewingDate();
-        if (d && d.month && d.year) return d;
-    }
-
-    // Fallback (caso a barra ainda não tenha carregado por algum motivo)
+function _fmtDate(iso) {
     try {
-        const response = await fetch('/invoices/api/get-viewing-date');
-        const data = await response.json();
-        return { month: data.viewing_month, year: data.viewing_year };
+        const [y, m, d] = iso.split('-').map(Number);
+        return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo' }).format(new Date(y, m - 1, d));
     } catch (e) {
-        return { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
+        return iso;
     }
 }
 
-async function updateMonthDisplay() {
-    const { month, year } = await _resolveAppliedViewingDate();
-    const el = document.getElementById('monthDisplay');
-    if (el) {
-        el.textContent = _fmtMonthYearLocal(month, year);
-    }
-    return { month, year };
+function _badge(status) {
+    if (status === 'paid') return '<span class="badge bg-success">Paga</span>';
+    if (status === 'closed') return '<span class="badge bg-warning">Fechada</span>';
+    return '<span class="badge bg-primary">Aberta</span>';
 }
 
-async function loadTimeline() {
-    try {
-        const applied = await _resolveAppliedViewingDate();
-        const response = await fetch('/invoices/api/timeline');
+function _statusHelp(inv) {
+    if (!inv) return '';
+    const due = inv.due_date ? _fmtDate(inv.due_date) : '—';
+    const close = inv.closing_date ? _fmtDate(inv.closing_date) : '—';
+    const dueTxt = (typeof inv.days_to_due === 'number') ? `${inv.days_to_due}d` : '—';
+    const closeTxt = (typeof inv.days_to_close === 'number') ? `${inv.days_to_close}d` : '—';
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const timeline = await response.json();
-
-        const tbody = document.getElementById('timelineBody');
-        tbody.innerHTML = '';
-
-        if (!timeline || timeline.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center">Nenhum dado disponível</td></tr>';
-            return;
-        }
-
-        timeline.forEach(item => {
-            const row = document.createElement('tr');
-            const isApplied = item.month === applied.month && item.year === applied.year;
-            if (isApplied) row.classList.add('table-primary');
-
-            let statusBadge = '';
-            if (item.is_paid) {
-                statusBadge = '<span class="badge bg-success">PAGA ✓</span>';
-            } else if (item.is_past) {
-                statusBadge = '<span class="badge bg-warning">ABERTA</span>';
-            } else if (item.is_current) {
-                statusBadge = '<span class="badge bg-primary">ATUAL</span>';
-            } else {
-                statusBadge = '<span class="badge bg-secondary">PROJEÇÃO</span>';
-            }
-
-            row.innerHTML = `
-                <td><strong>${item.month_name}/${item.year}</strong></td>
-                <td>R$ ${item.amount.toFixed(2)}</td>
-                <td>${statusBadge}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary" 
-                            onclick="selectPeriod(${item.month}, ${item.year})">
-                        <i class="fas fa-hand-pointer"></i> Selecionar
-                    </button>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-    } catch (error) {
-        console.error('Erro ao carregar timeline:', error);
-        document.getElementById('timelineBody').innerHTML = 
-            '<tr><td colspan="4" class="text-center text-danger">Erro ao carregar dados. Veja o console.</td></tr>';
-    }
+    return `
+        <div class="small text-muted">Fecha: ${close} (${closeTxt}) · Vence: ${due} (${dueTxt})</div>
+    `;
 }
 
-function selectPeriod(month, year) {
-    // Só seleciona o período; aplicar é responsabilidade do usuário via barra.
-    if (window.setPendingViewingDate) {
-        window.setPendingViewingDate(month, year);
-        if (window.utils && window.utils.showToast) {
-            window.utils.showToast(`Período selecionado: ${_fmtMonthYearLocal(month, year)}. Clique em Aplicar.`, 'info');
-        }
+function _cardHtml(item) {
+    const inv = item.invoice;
+    const card = item.card;
+    const amount = item.amount || 0;
+
+    const invId = inv ? inv.id : null;
+    const canPay = inv && inv.status !== 'paid';
+    const canUnpay = inv && inv.status === 'paid';
+
+    return `
+        <div class="col-md-6 mb-3">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="fw-bold"><i class="fas fa-credit-card"></i> ${card.name} <span class="text-muted small">**** ${card.last_digits || ''}</span></div>
+                        ${inv ? _statusHelp(inv) : '<div class="small text-muted">Sem fatura gerada (valor 0).</div>'}
+                    </div>
+                    <div>${inv ? _badge(inv.status) : '<span class="badge bg-secondary">—</span>'}</div>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="text-muted">Total</div>
+                            <div class="h4 mb-0">${_fmtMoney(amount)}</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-muted">Parcelas</div>
+                            <div class="h4 mb-0">${item.installments_count || 0}</div>
+                        </div>
+                    </div>
+                    ${inv && inv.status === 'paid' && inv.paid_date ? `
+                        <div class="alert alert-success mt-3 mb-0 py-2">
+                            Pago em ${_fmtDate(inv.paid_date)}
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="card-footer">
+                    <div class="btn-group w-100" role="group">
+                        <button class="btn btn-outline-primary" onclick='showDetails(${JSON.stringify(item).replace(/'/g, "&apos;")})'>
+                            <i class="fas fa-list"></i> Detalhes
+                        </button>
+                        ${canPay ? `
+                            <button class="btn btn-success" onclick="payInvoice(${invId})">
+                                <i class="fas fa-check"></i> Pagar
+                            </button>
+                        ` : ''}
+                        ${canUnpay ? `
+                            <button class="btn btn-warning" onclick="unpayInvoice(${invId})">
+                                <i class="fas fa-undo"></i> Despagar
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function _groupByStatus(invoices) {
+    const open = [];
+    const closed = [];
+    const paid = [];
+
+    invoices.forEach(it => {
+        if (!it.invoice) return;
+        if (it.invoice.status === 'paid') paid.push(it);
+        else if (it.invoice.status === 'closed') closed.push(it);
+        else open.push(it);
+    });
+
+    return { open, closed, paid };
+}
+
+async function _fetchInvoices(month, year, status) {
+    const qs = new URLSearchParams({ month, year, status });
+    const r = await fetch(`/invoices/api/invoices?${qs.toString()}`);
+    if (!r.ok) throw new Error('Erro ao carregar faturas');
+    return await r.json();
+}
+
+function _render(listElId, emptyElId, data) {
+    const listEl = document.getElementById(listElId);
+    const emptyEl = document.getElementById(emptyElId);
+
+    listEl.innerHTML = '';
+    if (!data || data.length === 0) {
+        emptyEl.style.display = 'block';
         return;
     }
 
-    // Fallback (não ideal)
-    if (window.utils && window.utils.showToast) {
-        window.utils.showToast('Barra temporal não encontrada nesta tela.', 'warning');
+    emptyEl.style.display = 'none';
+    data.forEach(item => {
+        listEl.innerHTML += _cardHtml(item);
+    });
+}
+
+async function loadCurrent() {
+    // “Abertas/Fechadas/Pagas” por padrão: mês atual
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+
+    const all = await _fetchInvoices(month, year, 'all');
+    const grouped = _groupByStatus(all);
+
+    _render('openList', 'openEmpty', grouped.open);
+    _render('closedList', 'closedEmpty', grouped.closed);
+    _render('paidList', 'paidEmpty', grouped.paid);
+}
+
+function _fillHistorySelectors() {
+    const mSel = document.getElementById('historyMonth');
+    const ySel = document.getElementById('historyYear');
+
+    const now = new Date();
+
+    mSel.innerHTML = '';
+    for (let m = 1; m <= 12; m++) {
+        const opt = document.createElement('option');
+        opt.value = String(m);
+        opt.textContent = monthNames[m];
+        if (m === (now.getMonth() + 1)) opt.selected = true;
+        mSel.appendChild(opt);
+    }
+
+    ySel.innerHTML = '';
+    const base = now.getFullYear();
+    for (let y = base - 2; y <= base + 1; y++) {
+        const opt = document.createElement('option');
+        opt.value = String(y);
+        opt.textContent = String(y);
+        if (y === base) opt.selected = true;
+        ySel.appendChild(opt);
     }
 }
 
-async function loadInvoices() {
-    try {
-        const applied = await updateMonthDisplay();
+async function loadHistory() {
+    const month = parseInt(document.getElementById('historyMonth').value);
+    const year = parseInt(document.getElementById('historyYear').value);
 
-        const response = await fetch(`/invoices/api/invoices?month=${applied.month}&year=${applied.year}`);
+    const all = await _fetchInvoices(month, year, 'all');
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+    const listEl = document.getElementById('historyList');
+    const emptyEl = document.getElementById('historyEmpty');
 
-        const invoices = await response.json();
+    listEl.innerHTML = '';
 
-        const container = document.getElementById('invoicesList');
-        const noInvoices = document.getElementById('noInvoices');
+    if (!all || all.length === 0) {
+        emptyEl.style.display = 'block';
+        return;
+    }
 
-        container.innerHTML = '';
+    emptyEl.style.display = 'none';
+    all.forEach(item => {
+        listEl.innerHTML += _cardHtml(item);
+    });
+}
 
-        if (!invoices || invoices.length === 0) {
-            noInvoices.style.display = 'block';
-            return;
-        }
+function showDetails(item) {
+    const inv = item.invoice;
+    const card = item.card;
 
-        noInvoices.style.display = 'none';
+    document.getElementById('invoiceDetailsTitle').textContent = `Detalhes — ${card.name}`;
 
-        invoices.forEach(item => {
-            const invoice = item.invoice;
-            const card = item.card;
-            const statusLabel = invoice ? invoice.status_label : 'FUTURA';
-            const isPaid = invoice && invoice.status === 'paid';
-
-            let statusClass = 'secondary';
-            if (statusLabel === 'PAGA') statusClass = 'success';
-            else if (statusLabel === 'ATUAL') statusClass = 'primary';
-            else if (statusLabel === 'ATRASADA') statusClass = 'danger';
-
-            const cardHtml = `
-                <div class="col-md-6 mb-3">
-                    <div class="card h-100">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <div>
-                                <h5 class="mb-0">
-                                    <i class="fas fa-credit-card"></i> ${card.name}
-                                    <small class="text-muted">**** ${card.last_digits}</small>
-                                </h5>
-                            </div>
-                            <span class="badge bg-${statusClass}">${statusLabel}</span>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-6">
-                                    <p class="mb-1"><strong>Valor Total:</strong></p>
-                                    <h3 class="text-primary">R$ ${item.amount.toFixed(2)}</h3>
-                                </div>
-                                <div class="col-6">
-                                    <p class="mb-1"><strong>Vencimento:</strong></p>
-                                    <p>${invoice ? new Date(invoice.due_date).toLocaleDateString('pt-BR') : 'N/A'}</p>
-                                    <p class="mb-1"><strong>Parcelas:</strong> ${item.installments_count}</p>
-                                </div>
-                            </div>
-                            ${invoice && isPaid ? `
-                                <div class="alert alert-success mt-2 mb-2">
-                                    <i class="fas fa-check-circle"></i> Pago em ${new Date(invoice.paid_date).toLocaleDateString('pt-BR')}
-                                </div>
-                            ` : ''}
-                        </div>
-                        <div class="card-footer">
-                            <div class="btn-group w-100" role="group">
-                                <button class="btn btn-outline-primary" 
-                                        onclick='showInvoiceDetails(${JSON.stringify(item).replace(/'/g, "&apos;")})'>
-                                    <i class="fas fa-list"></i> Detalhes
-                                </button>
-                                ${invoice && !isPaid && statusLabel !== 'FUTURA' ? `
-                                    <button class="btn btn-success" onclick="payInvoice(${invoice.id})">
-                                        <i class="fas fa-check"></i> Pagar
-                                    </button>
-                                ` : ''}
-                                ${invoice && isPaid ? `
-                                    <button class="btn btn-warning" onclick="unpayInvoice(${invoice.id})">
-                                        <i class="fas fa-times"></i> Despagar
-                                    </button>
-                                ` : ''}
-                            </div>
-                        </div>
-                    </div>
+    const meta = document.getElementById('invoiceMeta');
+    if (inv) {
+        meta.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div>${_badge(inv.status)} <span class="ms-2 text-muted">${monthNames[inv.month]}/${inv.year}</span></div>
+                    <div class="text-muted small">Fecha: ${_fmtDate(inv.closing_date)} · Vence: ${_fmtDate(inv.due_date)}</div>
                 </div>
-            `;
-
-            container.innerHTML += cardHtml;
-        });
-    } catch (error) {
-        console.error('Erro ao carregar faturas:', error);
-        document.getElementById('invoicesList').innerHTML = 
-            '<div class="col-12"><div class="alert alert-danger">Erro ao carregar faturas. Veja o console do navegador e do Python.</div></div>';
+                <div class="text-end">
+                    <div class="text-muted small">Total</div>
+                    <div class="h5 mb-0">${_fmtMoney(item.amount)}</div>
+                </div>
+            </div>
+        `;
+    } else {
+        meta.innerHTML = '<div class="text-muted">Sem fatura gerada.</div>';
     }
-}
 
-function showInvoiceDetails(item) {
-    currentInvoiceDetails = item;
-    const tbody = document.getElementById('installmentsTableBody');
+    // Compactar por compra (transaction_id)
+    const tbody = document.getElementById('detailsBody');
     tbody.innerHTML = '';
 
-    if (!item.installments || item.installments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhuma parcela encontrada</td></tr>';
+    const installments = item.installments || [];
+    if (!installments.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center">Nenhuma parcela</td></tr>';
     } else {
-        // Agrupar por transação
-        const transactionMap = {};
-        item.installments.forEach(inst => {
-            if (!transactionMap[inst.transaction_id]) {
-                transactionMap[inst.transaction_id] = [];
-            }
-            transactionMap[inst.transaction_id].push(inst);
+        const txMap = {};
+        installments.forEach(inst => {
+            const tid = inst.transaction_id;
+            if (!txMap[tid]) txMap[tid] = [];
+            txMap[tid].push(inst);
         });
 
-        // Renderizar
-        Object.values(transactionMap).forEach(instGroup => {
-            const firstInst = instGroup[0];
-            const totalValue = firstInst.amount * firstInst.total_installments;
+        Object.values(txMap).forEach(group => {
+            const first = group[0];
+            const total = (first.amount || 0) * (first.total_installments || 0);
 
-            instGroup.forEach(inst => {
-                const row = `
-                    <tr>
-                        <td>${inst.description || 'Compra'}</td>
-                        <td><strong>R$ ${totalValue.toFixed(2)}</strong></td>
-                        <td><span class="badge bg-info">${inst.installment_number}/${inst.total_installments}</span></td>
-                        <td>R$ ${inst.amount.toFixed(2)}</td>
-                        <td>${new Date(inst.due_date).toLocaleDateString('pt-BR')}</td>
-                        <td>${inst.paid ? '<span class="badge bg-success">Paga</span>' : '<span class="badge bg-warning">Aberta</span>'}</td>
-                    </tr>
-                `;
-                tbody.innerHTML += row;
-            });
+            const paidCount = group.filter(x => x.paid).length;
+            const groupStatus = (paidCount === group.length) ? 'paid' : (paidCount > 0 ? 'open' : (inv ? inv.status : 'open'));
+
+            tbody.innerHTML += `
+                <tr>
+                    <td>${first.description || 'Compra'}</td>
+                    <td class="text-end">${_fmtMoney(total)}</td>
+                    <td>${group.length} parcela(s) nesta fatura</td>
+                    <td class="text-end">${_fmtMoney(first.amount)}</td>
+                    <td>${_badge(groupStatus)}</td>
+                </tr>
+            `;
         });
     }
 
     new bootstrap.Modal(document.getElementById('invoiceDetailsModal')).show();
 }
 
-async function payInvoice(invoiceId) {
+async function payInvoice(id) {
     if (!confirm('Deseja marcar esta fatura como paga?')) return;
-
-    try {
-        const response = await fetch(`/invoices/api/invoices/${invoiceId}/pay`, {
-            method: 'POST'
-        });
-
-        if (response.ok) {
-            showAlert('Fatura marcada como paga com sucesso!', 'success');
-            await loadInvoices();
-            await loadTimeline();
-        } else {
-            throw new Error('Erro ao pagar fatura');
-        }
-    } catch (error) {
-        console.error('Erro ao pagar fatura:', error);
-        showAlert('Erro ao pagar fatura', 'danger');
+    const r = await fetch(`/invoices/api/invoices/${id}/pay`, { method: 'POST' });
+    if (!r.ok) {
+        alert('Erro ao pagar fatura');
+        return;
     }
+    await loadCurrent();
 }
 
-async function unpayInvoice(invoiceId) {
-    if (!confirm('Deseja desmarcar esta fatura como paga?')) return;
-
-    try {
-        const response = await fetch(`/invoices/api/invoices/${invoiceId}/unpay`, {
-            method: 'POST'
-        });
-
-        if (response.ok) {
-            showAlert('Fatura desmarcada como paga!', 'warning');
-            await loadInvoices();
-            await loadTimeline();
-        } else {
-            throw new Error('Erro ao despagar fatura');
-        }
-    } catch (error) {
-        console.error('Erro ao despagar fatura:', error);
-        showAlert('Erro ao despagar fatura', 'danger');
+async function unpayInvoice(id) {
+    if (!confirm('Deseja despagar esta fatura?')) return;
+    const r = await fetch(`/invoices/api/invoices/${id}/unpay`, { method: 'POST' });
+    if (!r.ok) {
+        alert('Erro ao despagar fatura');
+        return;
     }
+    await loadCurrent();
 }
 
-function showAlert(message, type) {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
-    alertDiv.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.container').firstChild);
-
-    setTimeout(() => alertDiv.remove(), 3000);
-}
-
-// Carregar dados ao iniciar
 document.addEventListener('DOMContentLoaded', async () => {
-    await loadTimeline();
-    await loadInvoices();
+    _fillHistorySelectors();
+    await loadCurrent();
 });
 </script>
 {% endblock %}
