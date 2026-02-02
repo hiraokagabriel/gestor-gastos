@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+
+{% block title %}Agenda - Gestor de Gastos{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-3">
+        <div class="col">
+            <h2><i class="fas fa-calendar-alt"></i> Agenda</h2>
+            <p class="text-muted mb-0">O que vence em breve (faturas e boletos).</p>
+        </div>
+        <div class="col text-end">
+            <div class="btn-group" role="group" aria-label="range">
+                <button class="btn btn-outline-primary" onclick="setRange(7)">7 dias</button>
+                <button class="btn btn-outline-primary active" id="btn15" onclick="setRange(15)">15 dias</button>
+                <button class="btn btn-outline-primary" onclick="setRange(30)">30 dias</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="agendaSummary" class="row g-3 mb-3" style="display:none;">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted">Total no período</div>
+                    <div class="h4 mb-0" id="sumTotal">R$ 0,00</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted">Faturas</div>
+                    <div class="h4 mb-0" id="sumInvoices">R$ 0,00</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted">Boletos</div>
+                    <div class="h4 mb-0" id="sumBills">R$ 0,00</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <strong>Próximos vencimentos</strong>
+                <span class="text-muted small" id="rangeLabel"></span>
+            </div>
+            <a class="btn btn-sm btn-outline-secondary" href="/invoices">
+                <i class="fas fa-file-invoice-dollar"></i> Ver faturas
+            </a>
+        </div>
+        <div class="card-body">
+            <div id="agendaLoading" class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Carregando...</span>
+                </div>
+            </div>
+
+            <div id="agendaEmpty" class="alert alert-info" style="display:none;">
+                <i class="fas fa-info-circle"></i> Nada vencendo no período.
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover" id="agendaTable" style="display:none;">
+                    <thead>
+                        <tr>
+                            <th>Quando</th>
+                            <th>Tipo</th>
+                            <th>Título</th>
+                            <th class="text-end">Valor</th>
+                            <th class="text-end">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="agendaBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentRange = 15;
+
+function _fmtMoney(v) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+}
+
+function _fmtDate(iso) {
+    try {
+        const [y, m, d] = iso.split('-').map(Number);
+        const dt = new Date(y, m - 1, d);
+        return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo' }).format(dt);
+    } catch (e) {
+        return iso;
+    }
+}
+
+function _daysFromToday(iso) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const [y, m, d] = iso.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    const target = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+
+    const diffMs = target.getTime() - today.getTime();
+    return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function _whenLabel(iso) {
+    const days = _daysFromToday(iso);
+    if (days === 0) return 'Hoje';
+    if (days === 1) return 'Amanhã';
+    if (days < 0) return `Atrasado (${Math.abs(days)}d)`;
+    return `Em ${days}d`;
+}
+
+function _badgeFor(item) {
+    if (item.type === 'invoice') {
+        if (item.status === 'closed') return '<span class="badge bg-warning">Fatura fechada</span>';
+        return '<span class="badge bg-primary">Fatura aberta</span>';
+    }
+    return '<span class="badge bg-secondary">Boleto</span>';
+}
+
+function _actionButtons(item) {
+    if (item.type === 'invoice') {
+        // MVP: levar para tela de faturas
+        return `<a class="btn btn-sm btn-outline-primary" href="/invoices"><i class="fas fa-eye"></i> Abrir</a>`;
+    }
+
+    // Bill: por enquanto só abrir lista de bills (se existir). Caso não exista página, mantém sem ação.
+    return '<span class="text-muted">—</span>';
+}
+
+async function loadAgenda() {
+    document.getElementById('agendaLoading').style.display = 'block';
+    document.getElementById('agendaEmpty').style.display = 'none';
+    document.getElementById('agendaTable').style.display = 'none';
+    document.getElementById('agendaSummary').style.display = 'none';
+
+    document.getElementById('rangeLabel').textContent = `(próximos ${currentRange} dias)`;
+
+    const resp = await fetch(`/invoices/api/agenda?days=${currentRange}`);
+    const data = await resp.json();
+
+    const items = (data.items || []);
+
+    let sumInvoices = 0;
+    let sumBills = 0;
+
+    const tbody = document.getElementById('agendaBody');
+    tbody.innerHTML = '';
+
+    if (!items.length) {
+        document.getElementById('agendaLoading').style.display = 'none';
+        document.getElementById('agendaEmpty').style.display = 'block';
+        return;
+    }
+
+    items.forEach(item => {
+        if (item.type === 'invoice') sumInvoices += (item.amount || 0);
+        if (item.type === 'bill') sumBills += (item.amount || 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <div><strong>${_whenLabel(item.date)}</strong></div>
+                <div class="text-muted small">${_fmtDate(item.date)}</div>
+            </td>
+            <td>${_badgeFor(item)}</td>
+            <td>${item.title || ''}</td>
+            <td class="text-end">${_fmtMoney(item.amount)}</td>
+            <td class="text-end">${_actionButtons(item)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('sumInvoices').textContent = _fmtMoney(sumInvoices);
+    document.getElementById('sumBills').textContent = _fmtMoney(sumBills);
+    document.getElementById('sumTotal').textContent = _fmtMoney(sumInvoices + sumBills);
+
+    document.getElementById('agendaLoading').style.display = 'none';
+    document.getElementById('agendaSummary').style.display = 'flex';
+    document.getElementById('agendaTable').style.display = 'table';
+}
+
+function setRange(days) {
+    currentRange = days;
+
+    document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+    if (days === 15) {
+        document.getElementById('btn15').classList.add('active');
+    }
+
+    loadAgenda();
+}
+
+document.addEventListener('DOMContentLoaded', loadAgenda);
+</script>
+{% endblock %}
