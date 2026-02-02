@@ -32,10 +32,13 @@
                     </tbody>
                 </table>
             </div>
+            <div class="text-muted small mt-2">
+                Dica: use <strong>Selecionar</strong> para escolher um período e clique em <strong>Aplicar</strong> na barra superior.
+            </div>
         </div>
     </div>
 
-    <!-- Lista de Faturas do Mês Atual -->
+    <!-- Lista de Faturas do Período Aplicado -->
     <div class="row mb-4">
         <div class="col">
             <h4 id="currentMonthTitle">Faturas de <span id="monthDisplay"></span></h4>
@@ -88,60 +91,84 @@
 </div>
 
 <script>
-// Variáveis locais (não conflitam com temporal-nav.js)
-let currentViewingMonth = new Date().getMonth() + 1;
-let currentViewingYear = new Date().getFullYear();
 let currentInvoiceDetails = null;
 
 const monthNamesLocal = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
                     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
-function updateMonthDisplay() {
-    document.getElementById('monthDisplay').textContent = 
-        `${monthNamesLocal[currentViewingMonth]}/${currentViewingYear}`;
+function _fmtMonthYearLocal(month, year) {
+    return `${monthNamesLocal[month]}/${year}`;
+}
+
+async function _resolveAppliedViewingDate() {
+    // Preferir a fonte única do estado (temporal-nav.js)
+    if (window.getAppliedViewingDate) {
+        const d = window.getAppliedViewingDate();
+        if (d && d.month && d.year) return d;
+    }
+
+    // Fallback (caso a barra ainda não tenha carregado por algum motivo)
+    try {
+        const response = await fetch('/invoices/api/get-viewing-date');
+        const data = await response.json();
+        return { month: data.viewing_month, year: data.viewing_year };
+    } catch (e) {
+        return { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
+    }
+}
+
+async function updateMonthDisplay() {
+    const { month, year } = await _resolveAppliedViewingDate();
+    const el = document.getElementById('monthDisplay');
+    if (el) {
+        el.textContent = _fmtMonthYearLocal(month, year);
+    }
+    return { month, year };
 }
 
 async function loadTimeline() {
     try {
+        const applied = await _resolveAppliedViewingDate();
         const response = await fetch('/invoices/api/timeline');
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const timeline = await response.json();
-        
+
         const tbody = document.getElementById('timelineBody');
         tbody.innerHTML = '';
-        
+
         if (!timeline || timeline.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" class="text-center">Nenhum dado disponível</td></tr>';
             return;
         }
-        
+
         timeline.forEach(item => {
             const row = document.createElement('tr');
-            if (item.is_current) row.classList.add('table-primary');
-            
+            const isApplied = item.month === applied.month && item.year === applied.year;
+            if (isApplied) row.classList.add('table-primary');
+
             let statusBadge = '';
             if (item.is_paid) {
                 statusBadge = '<span class="badge bg-success">PAGA ✓</span>';
             } else if (item.is_past) {
                 statusBadge = '<span class="badge bg-warning">ABERTA</span>';
             } else if (item.is_current) {
-                statusBadge = '<span class="badge bg-primary">👁️ ATUAL</span>';
+                statusBadge = '<span class="badge bg-primary">ATUAL</span>';
             } else {
                 statusBadge = '<span class="badge bg-secondary">PROJEÇÃO</span>';
             }
-            
+
             row.innerHTML = `
                 <td><strong>${item.month_name}/${item.year}</strong></td>
                 <td>R$ ${item.amount.toFixed(2)}</td>
                 <td>${statusBadge}</td>
                 <td>
                     <button class="btn btn-sm btn-outline-primary" 
-                            onclick="viewMonth(${item.month}, ${item.year})">
-                        <i class="fas fa-eye"></i> Ver
+                            onclick="selectPeriod(${item.month}, ${item.year})">
+                        <i class="fas fa-hand-pointer"></i> Selecionar
                     </button>
                 </td>
             `;
@@ -154,39 +181,57 @@ async function loadTimeline() {
     }
 }
 
+function selectPeriod(month, year) {
+    // Só seleciona o período; aplicar é responsabilidade do usuário via barra.
+    if (window.setPendingViewingDate) {
+        window.setPendingViewingDate(month, year);
+        if (window.utils && window.utils.showToast) {
+            window.utils.showToast(`Período selecionado: ${_fmtMonthYearLocal(month, year)}. Clique em Aplicar.`, 'info');
+        }
+        return;
+    }
+
+    // Fallback (não ideal)
+    if (window.utils && window.utils.showToast) {
+        window.utils.showToast('Barra temporal não encontrada nesta tela.', 'warning');
+    }
+}
+
 async function loadInvoices() {
     try {
-        const response = await fetch(`/invoices/api/invoices?month=${currentViewingMonth}&year=${currentViewingYear}`);
-        
+        const applied = await updateMonthDisplay();
+
+        const response = await fetch(`/invoices/api/invoices?month=${applied.month}&year=${applied.year}`);
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const invoices = await response.json();
-        
+
         const container = document.getElementById('invoicesList');
         const noInvoices = document.getElementById('noInvoices');
-        
+
         container.innerHTML = '';
-        
+
         if (!invoices || invoices.length === 0) {
             noInvoices.style.display = 'block';
             return;
         }
-        
+
         noInvoices.style.display = 'none';
-        
+
         invoices.forEach(item => {
             const invoice = item.invoice;
             const card = item.card;
             const statusLabel = invoice ? invoice.status_label : 'FUTURA';
             const isPaid = invoice && invoice.status === 'paid';
-            
+
             let statusClass = 'secondary';
             if (statusLabel === 'PAGA') statusClass = 'success';
             else if (statusLabel === 'ATUAL') statusClass = 'primary';
             else if (statusLabel === 'ATRASADA') statusClass = 'danger';
-            
+
             const cardHtml = `
                 <div class="col-md-6 mb-3">
                     <div class="card h-100">
@@ -238,7 +283,7 @@ async function loadInvoices() {
                     </div>
                 </div>
             `;
-            
+
             container.innerHTML += cardHtml;
         });
     } catch (error) {
@@ -252,7 +297,7 @@ function showInvoiceDetails(item) {
     currentInvoiceDetails = item;
     const tbody = document.getElementById('installmentsTableBody');
     tbody.innerHTML = '';
-    
+
     if (!item.installments || item.installments.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhuma parcela encontrada</td></tr>';
     } else {
@@ -264,12 +309,12 @@ function showInvoiceDetails(item) {
             }
             transactionMap[inst.transaction_id].push(inst);
         });
-        
+
         // Renderizar
         Object.values(transactionMap).forEach(instGroup => {
             const firstInst = instGroup[0];
             const totalValue = firstInst.amount * firstInst.total_installments;
-            
+
             instGroup.forEach(inst => {
                 const row = `
                     <tr>
@@ -285,18 +330,18 @@ function showInvoiceDetails(item) {
             });
         });
     }
-    
+
     new bootstrap.Modal(document.getElementById('invoiceDetailsModal')).show();
 }
 
 async function payInvoice(invoiceId) {
     if (!confirm('Deseja marcar esta fatura como paga?')) return;
-    
+
     try {
         const response = await fetch(`/invoices/api/invoices/${invoiceId}/pay`, {
             method: 'POST'
         });
-        
+
         if (response.ok) {
             showAlert('Fatura marcada como paga com sucesso!', 'success');
             await loadInvoices();
@@ -312,12 +357,12 @@ async function payInvoice(invoiceId) {
 
 async function unpayInvoice(invoiceId) {
     if (!confirm('Deseja desmarcar esta fatura como paga?')) return;
-    
+
     try {
         const response = await fetch(`/invoices/api/invoices/${invoiceId}/unpay`, {
             method: 'POST'
         });
-        
+
         if (response.ok) {
             showAlert('Fatura desmarcada como paga!', 'warning');
             await loadInvoices();
@@ -331,21 +376,6 @@ async function unpayInvoice(invoiceId) {
     }
 }
 
-function viewMonth(month, year) {
-    currentViewingMonth = month;
-    currentViewingYear = year;
-    updateMonthDisplay();
-    
-    // Atualizar sessão
-    fetch('/invoices/api/set-viewing-date', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({month, year})
-    }).catch(err => console.error('Erro ao salvar data:', err));
-    
-    loadInvoices();
-}
-
 function showAlert(message, type) {
     const alertDiv = document.createElement('div');
     alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
@@ -354,15 +384,14 @@ function showAlert(message, type) {
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
     document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.container').firstChild);
-    
+
     setTimeout(() => alertDiv.remove(), 3000);
 }
 
 // Carregar dados ao iniciar
-document.addEventListener('DOMContentLoaded', () => {
-    updateMonthDisplay();
-    loadTimeline();
-    loadInvoices();
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadTimeline();
+    await loadInvoices();
 });
 </script>
 {% endblock %}

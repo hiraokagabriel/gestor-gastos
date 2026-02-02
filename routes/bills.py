@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, render_template
 from models import Bill
 from database import db
 from datetime import datetime
+from calendar import monthrange
 
 bills_bp = Blueprint('bills', __name__, url_prefix='/bills')
 
@@ -12,15 +13,26 @@ def index():
 @bills_bp.route('/api/bills', methods=['GET'])
 def get_bills():
     status = request.args.get('status')
+    month = request.args.get('month', type=int)
+    year = request.args.get('year', type=int)
+
     query = Bill.query
-    
+
+    # Filtro mensal (por vencimento)
+    if month and year:
+        last_day = monthrange(year, month)[1]
+        start = datetime(year, month, 1)
+        end = datetime(year, month, last_day, 23, 59, 59, 999999)
+        query = query.filter(Bill.due_date >= start).filter(Bill.due_date <= end)
+
+    # Filtro por status (aplicado em cima do recorte mensal)
     if status == 'paid':
         query = query.filter_by(paid=True)
     elif status == 'pending':
         query = query.filter_by(paid=False).filter(Bill.due_date >= datetime.now())
     elif status == 'overdue':
         query = query.filter_by(paid=False).filter(Bill.due_date < datetime.now())
-    
+
     bills = query.order_by(Bill.due_date).all()
     return jsonify([bill.to_dict() for bill in bills])
 

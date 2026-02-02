@@ -67,12 +67,12 @@
     </div>
 </div>
 
-<!-- Filtro de Mês/Ano -->
+<!-- Filtros de período -->
 <div class="row mb-3">
     <div class="col-md-4">
-        <label class="form-label"><i class="fas fa-calendar"></i> Período:</label>
+        <label class="form-label"><i class="fas fa-calendar"></i> Mês/Ano:</label>
         <div class="input-group">
-            <select class="form-select" id="filterMonth" onchange="loadData()">
+            <select class="form-select" id="filterMonth">
                 <option value="1">Janeiro</option>
                 <option value="2">Fevereiro</option>
                 <option value="3">Março</option>
@@ -86,10 +86,30 @@
                 <option value="11">Novembro</option>
                 <option value="12">Dezembro</option>
             </select>
-            <input type="number" class="form-control" id="filterYear" placeholder="Ano" value="2026" onchange="loadData()">
+            <input type="number" class="form-control" id="filterYear" placeholder="Ano" value="2026">
+            <button class="btn btn-outline-primary" onclick="clearCustomRange(); loadData();" title="Aplicar mês/ano">
+                <i class="fas fa-filter"></i>
+            </button>
         </div>
+        <small class="text-muted">Dica: ao usar período customizado, mês/ano vira apenas referência.</small>
     </div>
-    <div class="col-md-8">
+
+    <div class="col-md-4">
+        <label class="form-label"><i class="fas fa-calendar-alt"></i> Período customizado:</label>
+        <div class="input-group">
+            <input type="date" class="form-control" id="startDate">
+            <input type="date" class="form-control" id="endDate">
+            <button class="btn btn-primary" onclick="loadData()">
+                <i class="fas fa-play"></i>
+            </button>
+            <button class="btn btn-outline-secondary" onclick="clearCustomRange(); loadData();" title="Limpar">
+                <i class="fas fa-eraser"></i>
+            </button>
+        </div>
+        <small class="text-muted" id="periodLabel">Período: mês/ano selecionado.</small>
+    </div>
+
+    <div class="col-md-4">
         <!-- Legenda Visual -->
         <label class="form-label"><i class="fas fa-info-circle"></i> Legenda:</label>
         <div>
@@ -122,7 +142,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Despesas -->
     <div class="col-lg-3 col-md-6 mb-3">
         <div class="card card-stat border-danger shadow-sm">
@@ -134,25 +154,25 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Saldo em Caixa -->
     <div class="col-lg-3 col-md-6 mb-3">
         <div class="card card-stat border-primary shadow-sm">
             <div class="card-body">
                 <h6 class="card-title text-primary"><i class="fas fa-wallet"></i> Saldo em Caixa</h6>
                 <h4 class="mb-0" id="balanceConsolidated">R$ 0,00</h4>
-                <small class="text-muted">(Apenas consolidados)</small>
+                <small class="text-muted" id="balanceConsolidatedMeta">(Apenas consolidados; saldo final do período)</small>
             </div>
         </div>
     </div>
-    
+
     <!-- Saldo Total -->
     <div class="col-lg-3 col-md-6 mb-3">
         <div class="card card-stat border-info shadow-sm">
             <div class="card-body">
                 <h6 class="card-title text-info"><i class="fas fa-chart-line"></i> Saldo Total</h6>
                 <h4 class="mb-0" id="balanceTotal">R$ 0,00</h4>
-                <small class="text-muted">(Consolidados + Pendentes)</small>
+                <small class="text-muted" id="balanceTotalMeta">(Consolidados + Pendentes; saldo final do período)</small>
             </div>
         </div>
     </div>
@@ -172,7 +192,7 @@
                 <i class="fas fa-check-circle"></i> Consolidados
             </button>
         </div>
-        
+
         <div class="btn-group" role="group">
             <button type="button" class="btn btn-outline-success" onclick="filterByType('income')">
                 <i class="fas fa-arrow-up"></i> Receitas
@@ -278,9 +298,33 @@ document.addEventListener('DOMContentLoaded', function() {
     const today = new Date();
     document.getElementById('filterMonth').value = today.getMonth() + 1;
     document.getElementById('filterYear').value = today.getFullYear();
-    
+
+    // default: range vazio
+    document.getElementById('startDate').value = '';
+    document.getElementById('endDate').value = '';
+
     loadData();
 });
+
+function clearCustomRange() {
+    document.getElementById('startDate').value = '';
+    document.getElementById('endDate').value = '';
+}
+
+function _buildPeriodQuery() {
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+
+    if (start && end) {
+        document.getElementById('periodLabel').textContent = `Período: ${new Date(start).toLocaleDateString('pt-BR')} até ${new Date(end).toLocaleDateString('pt-BR')}`;
+        return `start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`;
+    }
+
+    const month = document.getElementById('filterMonth').value;
+    const year = document.getElementById('filterYear').value;
+    document.getElementById('periodLabel').textContent = `Período: ${String(month).padStart(2,'0')}/${year}`;
+    return `month=${month}&year=${year}`;
+}
 
 async function loadData() {
     await loadSummary();
@@ -288,59 +332,71 @@ async function loadData() {
 }
 
 async function loadSummary() {
-    const month = document.getElementById('filterMonth').value;
-    const year = document.getElementById('filterYear').value;
-    
+    const periodQuery = _buildPeriodQuery();
+
     try {
-        const response = await fetch(`/accounts/api/accounts/summary?month=${month}&year=${year}`);
+        const response = await fetch(`/accounts/api/accounts/summary?${periodQuery}`);
         const summary = await response.json();
-        
+
+        if (!response.ok) {
+            console.error('Erro no resumo:', summary);
+            return;
+        }
+
         document.getElementById('totalIncome').textContent = `R$ ${summary.income_total.toFixed(2)}`;
         document.getElementById('incomeConsolidated').textContent = `R$ ${summary.income_consolidated.toFixed(2)}`;
         document.getElementById('incomePending').textContent = `R$ ${summary.income_pending.toFixed(2)}`;
-        
+
         document.getElementById('totalExpenses').textContent = `R$ ${summary.expense_total.toFixed(2)}`;
         document.getElementById('expenseConsolidated').textContent = `R$ ${summary.expense_consolidated.toFixed(2)}`;
         document.getElementById('expensePending').textContent = `R$ ${summary.expense_pending.toFixed(2)}`;
-        
+
         const consolidatedEl = document.getElementById('balanceConsolidated');
         consolidatedEl.textContent = `R$ ${summary.balance_consolidated.toFixed(2)}`;
         consolidatedEl.className = summary.balance_consolidated >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
-        
+
         const totalEl = document.getElementById('balanceTotal');
         totalEl.textContent = `R$ ${summary.balance_total.toFixed(2)}`;
         totalEl.className = summary.balance_total >= 0 ? 'text-success mb-0' : 'text-danger mb-0';
-        
+
+        // Mostrar como meta: saldo inicial + variação do período
+        document.getElementById('balanceConsolidatedMeta').textContent = `(Consolidados) Inicial: R$ ${summary.balance_initial_consolidated.toFixed(2)} | Período: R$ ${summary.period_balance_consolidated.toFixed(2)} | Final`;
+        document.getElementById('balanceTotalMeta').textContent = `(Total) Inicial: R$ ${summary.balance_initial_total.toFixed(2)} | Período: R$ ${summary.period_balance_total.toFixed(2)} | Final`;
+
     } catch (error) {
         console.error('Erro ao carregar resumo:', error);
     }
 }
 
 async function loadAccounts() {
-    const month = document.getElementById('filterMonth').value;
-    const year = document.getElementById('filterYear').value;
-    
+    const periodQuery = _buildPeriodQuery();
+
     try {
-        let url = `/accounts/api/accounts?month=${month}&year=${year}`;
-        
+        let url = `/accounts/api/accounts?${periodQuery}`;
+
         if (currentFilter !== 'all') {
             url += `&status=${currentFilter}`;
         }
-        
+
         if (currentTypeFilter) {
             url += `&type=${currentTypeFilter}`;
         }
-        
+
         const response = await fetch(url);
         const accounts = await response.json();
-        
+
         const accountsList = document.getElementById('accountsList');
-        
+
+        if (!response.ok) {
+            accountsList.innerHTML = `<div class="alert alert-danger">Erro ao carregar lançamentos: ${accounts.error || 'erro desconhecido'}</div>`;
+            return;
+        }
+
         if (accounts.length === 0) {
             accountsList.innerHTML = '<div class="alert alert-info text-center"><i class="fas fa-info-circle"></i> Nenhum lançamento encontrado</div>';
             return;
         }
-        
+
         accountsList.innerHTML = `
             <div class="card shadow-sm">
                 <div class="card-body p-0">
@@ -360,9 +416,9 @@ async function loadAccounts() {
                             </thead>
                             <tbody>
                                 ${accounts.map(acc => {
-                                    const rowClass = acc.consolidated ? 'row-consolidated' : 
+                                    const rowClass = acc.consolidated ? 'row-consolidated' :
                                                    (acc.is_recurring_child ? 'row-recurring-child' : '');
-                                    
+
                                     let originBadge = '';
                                     if (acc.is_recurring_origin) {
                                         originBadge = `<span class="badge badge-recurring-origin" title="Esta é a conta original. Ela gera cópias automaticamente todo mês."><i class="fas fa-sync-alt"></i> Origem</span>`;
@@ -371,7 +427,7 @@ async function loadAccounts() {
                                     } else {
                                         originBadge = `<span class="badge badge-unique" title="Lançamento único, não recorrente."><i class="fas fa-file"></i> Único</span>`;
                                     }
-                                    
+
                                     return `
                                         <tr class="${rowClass}">
                                             <td><small>${new Date(acc.date).toLocaleDateString('pt-BR')}</small></td>
@@ -431,7 +487,7 @@ async function loadAccounts() {
                 </div>
             </div>
         `;
-        
+
     } catch (error) {
         console.error('Erro ao carregar lançamentos:', error);
     }
@@ -464,10 +520,10 @@ function openAccountModal(type) {
         <i class="fas fa-${type === 'income' ? 'arrow-up' : 'arrow-down'}"></i>
         ${type === 'income' ? 'Nova Receita' : 'Nova Despesa'}
     `;
-    
+
     const today = new Date();
     document.getElementById('accountDate').valueAsDate = today;
-    
+
     new bootstrap.Modal(document.getElementById('accountModal')).show();
 }
 
@@ -475,7 +531,7 @@ async function editAccount(accountId) {
     try {
         const response = await fetch(`/accounts/api/accounts/${accountId}`);
         const account = await response.json();
-        
+
         document.getElementById('accountId').value = account.id;
         document.getElementById('accountType').value = account.type;
         document.getElementById('accountDescription').value = account.description;
@@ -484,12 +540,12 @@ async function editAccount(accountId) {
         document.getElementById('accountCategory').value = account.category || '';
         document.getElementById('accountRecurring').checked = account.recurring;
         document.getElementById('accountConsolidated').checked = account.consolidated;
-        
+
         document.getElementById('accountModalTitle').innerHTML = `
             <i class="fas fa-edit"></i>
             Editar ${account.type === 'income' ? 'Receita' : 'Despesa'}
         `;
-        
+
         new bootstrap.Modal(document.getElementById('accountModal')).show();
     } catch (error) {
         console.error('Erro ao carregar lançamento:', error);
@@ -508,26 +564,25 @@ async function saveAccount() {
         recurring: document.getElementById('accountRecurring').checked,
         consolidated: document.getElementById('accountConsolidated').checked
     };
-    
+
     try {
         const url = accountId ? `/accounts/api/accounts/${accountId}` : '/accounts/api/accounts';
         const method = accountId ? 'PUT' : 'POST';
-        
+
         const response = await fetch(url, {
             method: method,
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
         });
-        
+
         if (response.ok) {
             const result = await response.json();
             bootstrap.Modal.getInstance(document.getElementById('accountModal')).hide();
-            
-            // Mostrar mensagem se gerou recorrências
+
             if (result.generated_count > 0) {
                 alert(`✅ Sucesso! ${result.generated_count} meses gerados automaticamente.`);
             }
-            
+
             loadData();
         } else {
             alert('Erro ao salvar lançamento');
@@ -540,7 +595,7 @@ async function saveAccount() {
 
 async function consolidateAccount(accountId) {
     if (!confirm('Consolidar este lançamento? Ele afetará o saldo em caixa.')) return;
-    
+
     try {
         const response = await fetch(`/accounts/api/accounts/${accountId}/consolidate`, { method: 'POST' });
         if (response.ok) {
@@ -557,7 +612,7 @@ async function consolidateAccount(accountId) {
 
 async function unconsolidateAccount(accountId) {
     if (!confirm('Reverter consolidação deste lançamento?')) return;
-    
+
     try {
         const response = await fetch(`/accounts/api/accounts/${accountId}/unconsolidate`, { method: 'POST' });
         if (response.ok) {
@@ -574,7 +629,7 @@ async function unconsolidateAccount(accountId) {
 
 async function deleteAccount(accountId) {
     if (!confirm('Tem certeza que deseja excluir este lançamento?')) return;
-    
+
     try {
         const response = await fetch(`/accounts/api/accounts/${accountId}`, { method: 'DELETE' });
         if (response.ok) {
@@ -590,7 +645,7 @@ async function deleteAccount(accountId) {
 
 async function deleteAccountSeries(accountId) {
     if (!confirm('⚠️ ATENÇÃO! Isso vai excluir TODA a série recorrente (origem + todas as instâncias geradas). Continuar?')) return;
-    
+
     try {
         const response = await fetch(`/accounts/api/accounts/${accountId}/delete-series`, { method: 'DELETE' });
         if (response.ok) {
