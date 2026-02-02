@@ -152,12 +152,12 @@
         </div>
     </div>
 
-    <!-- Boletos Pendentes -->
+    <!-- Boletos do mês aplicado (não pagos) -->
     <div class="row">
         <div class="col-12">
             <div class="card shadow-sm">
                 <div class="card-header bg-warning">
-                    <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Boletos Pendentes</h5>
+                    <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Boletos do mês (não pagos)</h5>
                 </div>
                 <div class="card-body">
                     <div id="pendingBillsTable"></div>
@@ -177,6 +177,20 @@ let allCards = [];
 
 const monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+function _getAppliedPeriodParams() {
+    const p = new URLSearchParams();
+
+    if (window.getAppliedViewingDate) {
+        const d = window.getAppliedViewingDate();
+        if (d && d.month && d.year) {
+            p.set('month', d.month);
+            p.set('year', d.year);
+        }
+    }
+
+    return p;
+}
 
 async function initDashboard() {
     await loadCardTabs();
@@ -237,9 +251,12 @@ async function loadDashboard() {
 
 async function loadPrediction() {
     try {
-        const url = currentCardFilter === 'all'
-            ? '/dashboard/api/prediction'
-            : `/dashboard/api/prediction?card_id=${currentCardFilter}`;
+        const params = _getAppliedPeriodParams();
+        if (currentCardFilter !== 'all') {
+            params.set('card_id', currentCardFilter);
+        }
+
+        const url = `/dashboard/api/prediction?${params.toString()}`;
 
         const response = await fetch(url);
         const data = await response.json();
@@ -296,7 +313,7 @@ async function loadPrediction() {
                                     <i class="fas fa-file-invoice fa-2x text-warning mb-2"></i>
                                     <h6 class="text-muted">Boletos</h6>
                                     <h4 class="fw-bold">R$ ${data.breakdown.bills.total.toFixed(2)}</h4>
-                                    <small class="text-muted">${data.breakdown.bills.count} pendentes</small>
+                                    <small class="text-muted">${data.breakdown.bills.count} não pagos</small>
                                 </div>
                             </div>
                         </div>
@@ -361,7 +378,7 @@ async function loadPrediction() {
                             </div>
                             ${currentCardFilter === 'all' ? `
                             <div class="col-md-4">
-                                <h6 class="fw-bold">Boletos Pendentes</h6>
+                                <h6 class="fw-bold">Boletos (mês)</h6>
                                 <ul class="list-unstyled">
                                     ${data.breakdown.bills.items.slice(0, 5).map(item =>
                                         `<li><i class="fas fa-file-invoice text-warning"></i> ${item.description}: R$ ${item.amount.toFixed(2)} <small>(${item.due_date})</small></li>`
@@ -394,9 +411,12 @@ async function loadPrediction() {
 
 async function loadSummary() {
     try {
-        const url = currentCardFilter === 'all'
-            ? '/dashboard/api/summary'
-            : `/dashboard/api/summary?card_id=${currentCardFilter}`;
+        const params = _getAppliedPeriodParams();
+        if (currentCardFilter !== 'all') {
+            params.set('card_id', currentCardFilter);
+        }
+
+        const url = `/dashboard/api/summary?${params.toString()}`;
 
         const response = await fetch(url);
         const data = await response.json();
@@ -424,8 +444,14 @@ async function loadSummary() {
                 <div class="card text-white bg-warning shadow-sm stat-card">
                     <div class="card-body">
                         <h6 class="card-title"><i class="fas fa-exclamation-circle"></i> Boletos Pendentes</h6>
-                        <h3 class="mb-0">${data.bills.pending_count}</h3>
-                        <small>R$ ${data.bills.pending_amount.toFixed(2)}</small>
+                        <div class="d-flex justify-content-between">
+                            <small><strong>Mês:</strong> ${data.bills.pending_in_month_count}</small>
+                            <small><strong>R$</strong> ${data.bills.pending_in_month_amount.toFixed(2)}</small>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <small><strong>Até hoje:</strong> ${data.bills.pending_until_today_count}</small>
+                            <small><strong>R$</strong> ${data.bills.pending_until_today_amount.toFixed(2)}</small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -446,9 +472,12 @@ async function loadSummary() {
 
 async function loadTrendChart() {
     try {
-        const url = currentCardFilter === 'all'
-            ? '/dashboard/api/monthly-trend'
-            : `/dashboard/api/monthly-trend?card_id=${currentCardFilter}`;
+        const params = _getAppliedPeriodParams();
+        if (currentCardFilter !== 'all') {
+            params.set('card_id', currentCardFilter);
+        }
+
+        const url = `/dashboard/api/monthly-trend?${params.toString()}`;
 
         const response = await fetch(url);
         const data = await response.json();
@@ -514,9 +543,12 @@ async function loadTrendChart() {
 
 async function loadCategoryChart() {
     try {
-        const url = currentCardFilter === 'all'
-            ? '/dashboard/api/expenses-by-category'
-            : `/dashboard/api/expenses-by-category?card_id=${currentCardFilter}`;
+        const params = _getAppliedPeriodParams();
+        if (currentCardFilter !== 'all') {
+            params.set('card_id', currentCardFilter);
+        }
+
+        const url = `/dashboard/api/expenses-by-category?${params.toString()}`;
 
         const response = await fetch(url);
         const data = await response.json();
@@ -618,13 +650,16 @@ async function loadCardsTable() {
 
 async function loadPendingBills() {
     try {
-        const response = await fetch('/bills/api/bills?status=pending');
+        const params = _getAppliedPeriodParams();
+        params.set('status', 'open');
+
+        const response = await fetch(`/bills/api/bills?${params.toString()}`);
         const bills = await response.json();
 
         const pendingBillsTable = document.getElementById('pendingBillsTable');
 
         if (bills.length === 0) {
-            pendingBillsTable.innerHTML = '<p class="text-center text-success"><i class="fas fa-check-circle"></i> Nenhum boleto pendente</p>';
+            pendingBillsTable.innerHTML = '<p class="text-center text-success"><i class="fas fa-check-circle"></i> Nenhum boleto em aberto no mês</p>';
             return;
         }
 
@@ -681,7 +716,7 @@ async function loadPendingBills() {
             </div>
         `;
     } catch (error) {
-        console.error('Erro ao carregar boletos pendentes:', error);
+        console.error('Erro ao carregar boletos do mês:', error);
     }
 }
 

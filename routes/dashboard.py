@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, render_template, session, request
-from models import CreditCard, Bill, Account, Transaction, Invoice, Installment
+from models import CreditCard, Bill, Account, Transaction
 from database import db
 from datetime import datetime
 from sqlalchemy import func
@@ -9,13 +9,48 @@ from services.recurrence import list_recurring_occurrences_for_month
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
 
+
+def _resolve_viewing_month_year():
+    """Resolve mês/ano do dashboard.
+
+    Prioridade:
+    1) Query params month/year
+    2) Session viewing_month/viewing_year
+    3) Hoje
+    """
+    today = datetime.now()
+
+    month = request.args.get('month', type=int)
+    year = request.args.get('year', type=int)
+
+    if month and year:
+        return month, year
+
+    viewing_month = session.get('viewing_month', today.month)
+    viewing_year = session.get('viewing_year', today.year)
+    return viewing_month, viewing_year
+
+
+def _month_range(month: int, year: int):
+    first_day = datetime(year, month, 1)
+
+    if month == 12:
+        next_month = datetime(year + 1, 1, 1)
+    else:
+        next_month = datetime(year, month + 1, 1)
+
+    return first_day, next_month
+
+
 @dashboard_bp.route('/')
 def index():
     return render_template('dashboard.html')
 
+
 @dashboard_bp.route('/api/summary', methods=['GET'])
 def get_summary():
     card_id = request.args.get('card_id', type=int)
+    viewing_month, viewing_year = _resolve_viewing_month_year()
 
     # Filtrar por cartão se especificado
     if card_id:
@@ -27,30 +62,40 @@ def get_summary():
     total_card_used = sum(card.get_total_used() for card in cards)
     total_card_available = total_card_limit - total_card_used
 
-    pending_bills = Bill.query.filter_by(paid=False).all()
-    total_pending_bills = sum(bill.amount for bill in pending_bills)
-    overdue_bills = [bill for bill in pending_bills if bill.is_overdue]
-    total_overdue = sum(bill.amount for bill in overdue_bills)
+    # Período do mês aplicado
+    first_day, next_month = _month_range(viewing_month, viewing_year)
 
-    today = datetime.now()
-    first_day = datetime(today.year, today.month, 1)
-    if today.month == 12:
-        last_day = datetime(today.year + 1, 1, 1)
-    else:
-        last_day = datetime(today.year, today.month + 1, 1)
+    # Boletos
+    # - Pendentes do mês: não pagos com vencimento dentro do mês aplicado
+    pending_in_month = Bill.query.filter(
+        Bill.paid == False,
+        Bill.due_date >= first_day,
+        Bill.due_date < next_month
+    ).all()
+
+    pending_in_month_amount = float(sum(bill.amount for bill in pending_in_month))
+
+    # - Pendentes até aqui: não pagos com vencimento até hoje
+    now = datetime.now()
+    pending_until_today = Bill.query.filter(
+        Bill.paid == False,
+        Bill.due_date <= now
+    ).all()
+
+    pending_until_today_amount = float(sum(bill.amount for bill in pending_until_today))
 
     # Receitas (não filtradas por cartão)
     monthly_income = db.session.query(func.sum(Account.amount)).filter(
         Account.type == 'income',
         Account.date >= first_day,
-        Account.date < last_day
+        Account.date < next_month
     ).scalar() or 0.0
 
     # Despesas gerais (não de cartão)
     monthly_expenses = db.session.query(func.sum(Account.amount)).filter(
         Account.type == 'expense',
         Account.date >= first_day,
-        Account.date < last_day
+        Account.date < next_month
     ).scalar() or 0.0
 
     # Gastos de cartão (filtrados se card_id especificado)
@@ -58,12 +103,12 @@ def get_summary():
         monthly_card_expenses = db.session.query(func.sum(Transaction.amount)).filter(
             Transaction.card_id == card_id,
             Transaction.date >= first_day,
-            Transaction.date < last_day
+            Transaction.date < next_month
         ).scalar() or 0.0
     else:
         monthly_card_expenses = db.session.query(func.sum(Transaction.amount)).filter(
             Transaction.date >= first_day,
-            Transaction.date < last_day
+            Transaction.date < next_month
         ).scalar() or 0.0
 
     # Total de despesas
@@ -77,6 +122,8 @@ def get_summary():
     balance = monthly_income - total_expenses
 
     return jsonify({
+        'viewing_month': viewing_month,
+        'viewing_year': viewing_year,
         'cards': {
             'total_limit': total_card_limit,
             'total_used': total_card_used,
@@ -84,10 +131,10 @@ def get_summary():
             'usage_percentage': (total_card_used / total_card_limit * 100) if total_card_limit > 0 else 0
         },
         'bills': {
-            'pending_count': len(pending_bills),
-            'pending_amount': total_pending_bills,
-            'overdue_count': len(overdue_bills),
-            'overdue_amount': total_overdue
+            'pending_in_month_count': len(pending_in_month),
+            'pending_in_month_amount': pending_in_month_amount,
+            'pending_until_today_count': len(pending_until_today),
+            'pending_until_today_amount': pending_until_today_amount,
         },
         'monthly': {
             'income': monthly_income,
@@ -97,18 +144,22 @@ def get_summary():
         }
     })
 
+
 @dashboard_bp.route('/api/prediction', methods=['GET'])
 def get_prediction():
-    """Previsor de gastos do mês atual.
+    """Previsor de gastos do mês.
 
     Objetivo: não ambíguo.
-    - Sem card_id: soma faturas + boletos pendentes do mês + ocorrência do mês de recorrências.
+    - Sem card_id: soma faturas + boletos não pagos do mês + ocorrência do mês de recorrências.
     - Com card_id: soma apenas faturas do cartão (não inclui boletos/contas/receitas).
     """
     try:
         today = datetime.now()
-        viewing_month = session.get('viewing_month', today.month)
-        viewing_year = session.get('viewing_year', today.year)
+        month_arg = request.args.get('month', type=int)
+        year_arg = request.args.get('year', type=int)
+
+        viewing_month = month_arg or session.get('viewing_month', today.month)
+        viewing_year = year_arg or session.get('viewing_year', today.year)
         card_id = request.args.get('card_id', type=int)
 
         scope = 'card' if card_id else 'all'
@@ -132,7 +183,7 @@ def get_prediction():
                     'amount': amount
                 })
 
-        # 2) Boletos pendentes no mês (apenas Total Geral)
+        # 2) Boletos não pagos no mês (apenas Total Geral)
         bills_total = 0.0
         bills_breakdown = []
         if not card_id:
@@ -257,11 +308,12 @@ def get_prediction():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @dashboard_bp.route('/api/expenses-by-category', methods=['GET'])
 def expenses_by_category():
-    today = datetime.now()
-    first_day = datetime(today.year, today.month, 1)
     card_id = request.args.get('card_id', type=int)
+    viewing_month, viewing_year = _resolve_viewing_month_year()
+    first_day, next_month = _month_range(viewing_month, viewing_year)
 
     categories = {}
 
@@ -272,7 +324,8 @@ def expenses_by_category():
             func.sum(Account.amount).label('total')
         ).filter(
             Account.type == 'expense',
-            Account.date >= first_day
+            Account.date >= first_day,
+            Account.date < next_month
         ).group_by(Account.category).all()
 
         for category, total in account_expenses:
@@ -286,14 +339,16 @@ def expenses_by_category():
             func.sum(Transaction.amount).label('total')
         ).filter(
             Transaction.card_id == card_id,
-            Transaction.date >= first_day
+            Transaction.date >= first_day,
+            Transaction.date < next_month
         ).group_by(Transaction.category).all()
     else:
         card_expenses = db.session.query(
             Transaction.category,
             func.sum(Transaction.amount).label('total')
         ).filter(
-            Transaction.date >= first_day
+            Transaction.date >= first_day,
+            Transaction.date < next_month
         ).group_by(Transaction.category).all()
 
     for category, total in card_expenses:
@@ -305,18 +360,28 @@ def expenses_by_category():
         for k, v in categories.items()
     ])
 
+
 @dashboard_bp.route('/api/monthly-trend', methods=['GET'])
 def monthly_trend():
-    today = datetime.now()
-    trends = []
+    viewing_month, viewing_year = _resolve_viewing_month_year()
     card_id = request.args.get('card_id', type=int)
 
-    for i in range(6, 0, -1):
-        month = today.month - i
-        year = today.year
-        while month <= 0:
-            month += 12
-            year -= 1
+    # Últimos 6 meses terminando no mês aplicado (inclusive)
+    trends = []
+
+    def _add_month(y, m, delta):
+        mm = m + delta
+        yy = y
+        while mm > 12:
+            mm -= 12
+            yy += 1
+        while mm < 1:
+            mm += 12
+            yy -= 1
+        return yy, mm
+
+    for offset in range(-5, 1):
+        year, month = _add_month(viewing_year, viewing_month, offset)
 
         first_day = datetime(year, month, 1)
         if month == 12:

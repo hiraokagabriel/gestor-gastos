@@ -25,9 +25,15 @@ def get_bills():
         end = datetime(year, month, last_day, 23, 59, 59, 999999)
         query = query.filter(Bill.due_date >= start).filter(Bill.due_date <= end)
 
-    # Filtro por status (aplicado em cima do recorte mensal)
+    # Filtro por status
+    # paid: pagos
+    # open/unpaid: não pagos (independente do vencimento)
+    # pending: não pagos a vencer (>= agora)
+    # overdue: não pagos vencidos (< agora)
     if status == 'paid':
         query = query.filter_by(paid=True)
+    elif status in ('open', 'unpaid'):
+        query = query.filter_by(paid=False)
     elif status == 'pending':
         query = query.filter_by(paid=False).filter(Bill.due_date >= datetime.now())
     elif status == 'overdue':
