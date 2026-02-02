@@ -232,6 +232,22 @@ function _optValue(id) {
     return v === '' ? null : v;
 }
 
+function _parseISODateAsLocal(isoDate) {
+    // isoDate = "YYYY-MM-DD" (sem hora) -> criar Date em horário local, sem conversão UTC
+    if (!isoDate || typeof isoDate !== 'string') return null;
+    const parts = isoDate.split('-').map(Number);
+    if (parts.length !== 3) return null;
+    const [y, m, d] = parts;
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+}
+
+function _formatDateBR(isoDate) {
+    const dt = _parseISODateAsLocal(isoDate);
+    if (!dt) return '';
+    return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo' }).format(dt);
+}
+
 async function loadCards() {
     try {
         const response = await fetch('/cards/api/cards');
@@ -537,7 +553,7 @@ async function viewTransactions(cardId, cardName) {
                     <tbody>
                         ${transactions.map(t => `
                             <tr>
-                                <td>${new Date(t.date).toLocaleDateString('pt-BR')}</td>
+                                <td>${_formatDateBR(t.date)}</td>
                                 <td>${t.description}</td>
                                 <td><span class="badge bg-info">${t.category || 'Sem categoria'}</span></td>
                                 <td class="fw-bold text-primary">R$ ${t.amount.toFixed(2)}</td>
