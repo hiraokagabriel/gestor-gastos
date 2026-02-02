@@ -150,6 +150,24 @@ if (isCalendarPage()) {
         if (typeof loadDashboard === 'function') loadDashboard();
     }
 
+    // API pública para páginas que querem controlar o período pendente (ex.: timeline em /invoices)
+    window.getAppliedViewingDate = function() {
+        return { month: viewingMonth, year: viewingYear };
+    };
+
+    window.getPendingViewingDate = function() {
+        return { month: pendingMonth, year: pendingYear };
+    };
+
+    window.setPendingViewingDate = function(month, year) {
+        const m = parseInt(month, 10);
+        const y = parseInt(year, 10);
+        if (!m || m < 1 || m > 12 || !y) return;
+        pendingMonth = m;
+        pendingYear = y;
+        updateTemporalNav();
+    };
+
     // Setas mudam só o período SELECIONADO (não aplica imediatamente)
     window.prevMonth = function() {
         pendingMonth--;
