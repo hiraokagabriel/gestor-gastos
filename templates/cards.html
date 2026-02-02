@@ -101,12 +101,13 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Nova Compra</h5>
+                <h5 class="modal-title" id="transactionModalTitle">Nova Compra</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="transactionForm">
                     <input type="hidden" id="transactionCardId">
+                    <input type="hidden" id="transactionId">
                     <div class="mb-3">
                         <label for="transactionDescription" class="form-label">Descrição *</label>
                         <input type="text" class="form-control" id="transactionDescription" required>
@@ -157,7 +158,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="viewTransactionsTitle">Transações</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div id="transactionsList"></div>
@@ -172,7 +173,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Antecipar parcelas</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="anticipateTransactionId">
@@ -246,6 +247,91 @@ function _formatDateBR(isoDate) {
     const dt = _parseISODateAsLocal(isoDate);
     if (!dt) return '';
     return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo' }).format(dt);
+}
+
+function _isoToday() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function openTransactionModal(cardId) {
+    document.getElementById('transactionForm').reset();
+    document.getElementById('transactionCardId').value = cardId;
+    document.getElementById('transactionId').value = '';
+    document.getElementById('transactionDate').value = _isoToday();
+    document.getElementById('transactionModalTitle').textContent = 'Nova Compra';
+    new bootstrap.Modal(document.getElementById('transactionModal')).show();
+}
+
+async function openEditTransactionModal(transactionId, cardId) {
+    try {
+        const response = await fetch(`/cards/api/transactions/${transactionId}`);
+        const tx = await response.json();
+
+        document.getElementById('transactionCardId').value = cardId;
+        document.getElementById('transactionId').value = tx.id;
+        document.getElementById('transactionDescription').value = tx.description;
+        document.getElementById('transactionAmount').value = tx.amount;
+        document.getElementById('transactionDate').value = tx.date;
+        document.getElementById('transactionCategory').value = tx.category || '';
+        document.getElementById('transactionInstallments').value = tx.installments_total || 1;
+
+        document.getElementById('transactionModalTitle').textContent = 'Editar Compra';
+        new bootstrap.Modal(document.getElementById('transactionModal')).show();
+    } catch (error) {
+        console.error('Erro ao carregar transação:', error);
+        showToast('Erro ao carregar transação', 'error');
+    }
+}
+
+async function saveTransaction() {
+    if (!validateForm('transactionForm')) return;
+
+    const transactionId = (document.getElementById('transactionId').value || '').trim();
+
+    const data = {
+        card_id: document.getElementById('transactionCardId').value,
+        description: document.getElementById('transactionDescription').value,
+        amount: document.getElementById('transactionAmount').value,
+        date: document.getElementById('transactionDate').value,
+        category: document.getElementById('transactionCategory').value,
+        installments_total: document.getElementById('transactionInstallments').value
+    };
+
+    try {
+        const url = transactionId ? `/cards/api/transactions/${transactionId}` : '/cards/api/transactions';
+        const method = transactionId ? 'PUT' : 'POST';
+
+        const response = await fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            showToast(payload.error || 'Erro ao salvar transação', 'error');
+            return;
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('transactionModal')).hide();
+
+        if (transactionId) {
+            const reopened = (payload.reopened_invoices || []).map(x => `${String(x.month).padStart(2,'0')}/${x.year}`).join(', ');
+            showToast(reopened ? `Transação atualizada. Fatura reaberta: ${reopened}.` : 'Transação atualizada.', 'success');
+        } else {
+            showToast('Compra registrada com sucesso!', 'success');
+        }
+
+        loadCards();
+    } catch (error) {
+        console.error('Erro ao salvar transação:', error);
+        showToast('Erro ao salvar transação', 'error');
+    }
 }
 
 async function loadCards() {
@@ -461,43 +547,6 @@ async function deleteCard(cardId) {
     }
 }
 
-function openTransactionModal(cardId) {
-    document.getElementById('transactionForm').reset();
-    document.getElementById('transactionCardId').value = cardId;
-    document.getElementById('transactionDate').valueAsDate = new Date();
-    new bootstrap.Modal(document.getElementById('transactionModal')).show();
-}
-
-async function saveTransaction() {
-    if (!validateForm('transactionForm')) return;
-
-    const data = {
-        card_id: document.getElementById('transactionCardId').value,
-        description: document.getElementById('transactionDescription').value,
-        amount: document.getElementById('transactionAmount').value,
-        date: document.getElementById('transactionDate').value,
-        category: document.getElementById('transactionCategory').value,
-        installments_total: document.getElementById('transactionInstallments').value
-    };
-
-    try {
-        const response = await fetch('/cards/api/transactions', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(data)
-        });
-
-        if (response.ok) {
-            bootstrap.Modal.getInstance(document.getElementById('transactionModal')).hide();
-            showToast('Compra registrada com sucesso!', 'success');
-            loadCards();
-        }
-    } catch (error) {
-        console.error('Erro ao salvar transação:', error);
-        showToast('Erro ao salvar transação', 'error');
-    }
-}
-
 async function payCurrentInvoice(cardId) {
     if (!confirm('Deseja marcar a fatura do mês atual como paga?')) return;
 
@@ -559,6 +608,9 @@ async function viewTransactions(cardId, cardName) {
                                 <td class="fw-bold text-primary">R$ ${t.amount.toFixed(2)}</td>
                                 <td>${t.installments_total}x de R$ ${(t.amount / t.installments_total).toFixed(2)}</td>
                                 <td>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="openEditTransactionModal(${t.id}, ${cardId})" title="Editar">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
                                     ${t.installments_total > 1 ? `
                                     <button class="btn btn-sm btn-outline-primary" onclick="openAnticipateModal(${t.id}, ${cardId})" title="Antecipar parcelas">
                                         <i class="fas fa-forward"></i>

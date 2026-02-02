@@ -87,6 +87,34 @@ def _get_or_create_invoice(card: CreditCard, month: int, year: int) -> Invoice |
     return invoice
 
 
+def _reopen_invoice_if_needed(card_id: int, month: int, year: int):
+    """Reabre (despaga) uma fatura específica do cartão, caso exista e esteja paga.
+
+    Regra (opção 1): ao editar uma transação, reabrir apenas a fatura onde caiu a parcela 1.
+    """
+    invoice = Invoice.query.filter_by(card_id=card_id, month=month, year=year).first()
+    if not invoice:
+        return False
+
+    if invoice.status != 'paid':
+        return False
+
+    invoice.status = 'open'
+    invoice.paid_date = None
+
+    installments = Installment.query.join(Transaction).filter(
+        Transaction.card_id == card_id,
+        Installment.statement_month == month,
+        Installment.statement_year == year
+    ).all()
+
+    for inst in installments:
+        inst.paid = False
+        inst.paid_date = None
+
+    return True
+
+
 @cards_bp.route('/')
 def index():
     return render_template('cards.html')
@@ -253,6 +281,82 @@ def create_transaction():
     transaction.create_installments()
     db.session.commit()
     return jsonify(transaction.to_dict()), 201
+
+@cards_bp.route('/api/transactions/<int:transaction_id>', methods=['PUT'])
+def update_transaction(transaction_id):
+    tx = Transaction.query.get_or_404(transaction_id)
+    data = request.json or {}
+
+    # Capturar fatura original da parcela 1 antes de editar
+    old_first = Installment.query.filter_by(transaction_id=tx.id, installment_number=1).first()
+    old_stmt_month = old_first.statement_month if old_first else None
+    old_stmt_year = old_first.statement_year if old_first else None
+
+    # Validar entrada
+    description = (data.get('description') or '').strip()
+    if not description:
+        return jsonify({'error': 'Descrição é obrigatória.'}), 400
+
+    amount = _to_float_optional(data.get('amount'), None)
+    if amount is None or float(amount) <= 0:
+        return jsonify({'error': 'Valor inválido.'}), 400
+
+    date_str = (data.get('date') or '').strip()
+    if not date_str:
+        return jsonify({'error': 'Data é obrigatória.'}), 400
+
+    try:
+        new_date = datetime.strptime(date_str, '%Y-%m-%d')
+    except Exception:
+        return jsonify({'error': 'Data inválida. Use YYYY-MM-DD.'}), 400
+
+    installments_total = _to_int_optional(data.get('installments_total'), 1)
+    if not installments_total or int(installments_total) < 1:
+        return jsonify({'error': 'Parcelas inválidas.'}), 400
+
+    category = data.get('category', '')
+    if category is None:
+        category = ''
+
+    # Atualizar transação
+    tx.description = description
+    tx.amount = float(amount)
+    tx.date = new_date
+    tx.category = category
+    tx.installments_total = int(installments_total)
+
+    # Recriar parcelas (mais simples e consistente)
+    Installment.query.filter_by(transaction_id=tx.id).delete()
+    db.session.flush()
+
+    tx.create_installments()
+
+    # Reabrir (despagar) apenas a fatura onde caiu a parcela 1 (original e/ou nova)
+    reopened = []
+    if old_stmt_month and old_stmt_year:
+        if _reopen_invoice_if_needed(tx.card_id, int(old_stmt_month), int(old_stmt_year)):
+            reopened.append({'month': int(old_stmt_month), 'year': int(old_stmt_year)})
+
+    new_first = Installment.query.filter_by(transaction_id=tx.id, installment_number=1).first()
+    if new_first and new_first.statement_month and new_first.statement_year:
+        nm, ny = int(new_first.statement_month), int(new_first.statement_year)
+        if not (old_stmt_month == nm and old_stmt_year == ny):
+            if _reopen_invoice_if_needed(tx.card_id, nm, ny):
+                reopened.append({'month': nm, 'year': ny})
+
+    db.session.commit()
+
+    # Atualizar amounts das invoices envolvidas (se existirem) para refletir a edição
+    if old_stmt_month and old_stmt_year:
+        _get_or_create_invoice(tx.card, int(old_stmt_month), int(old_stmt_year))
+    if new_first and new_first.statement_month and new_first.statement_year:
+        _get_or_create_invoice(tx.card, int(new_first.statement_month), int(new_first.statement_year))
+
+    return jsonify({
+        'message': 'Transação atualizada com sucesso.',
+        'transaction': tx.to_dict(),
+        'reopened_invoices': reopened
+    }), 200
 
 @cards_bp.route('/api/transactions/<int:transaction_id>', methods=['DELETE'])
 def delete_transaction(transaction_id):
