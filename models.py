@@ -231,6 +231,7 @@ class Installment(db.Model):
             'anticipated_at': self.anticipated_at.strftime('%Y-%m-%d %H:%M:%S') if self.anticipated_at else None,
             'anticipated_from_month': self.anticipated_from_month,
             'anticipated_from_year': self.anticipated_from_year,
+            'days_to_due': max(0, (self.due_date - datetime.now()).days) if self.due_date else 0
         }
 
 class Invoice(db.Model):
@@ -250,6 +251,15 @@ class Invoice(db.Model):
     def to_dict(self):
         today = datetime.now()
         reference_date = datetime(self.year, self.month, 1)
+        days_in_month = monthrange(self.year, self.month)[1]
+        closing_day = min(self.card.closing_day, days_in_month)
+        cycle_end_date = datetime(self.year, self.month, closing_day)
+        prev_month_date = cycle_end_date - relativedelta(months=1)
+        prev_days_in_month = monthrange(prev_month_date.year, prev_month_date.month)[1]
+        prev_closing_day = min(self.card.closing_day, prev_days_in_month)
+        cycle_start_date = datetime(prev_month_date.year, prev_month_date.month, prev_closing_day) + timedelta(days=1)
+        days_to_close = (cycle_end_date - today).days if cycle_end_date > today else 0
+        days_to_due = (self.due_date - today).days if self.due_date > today else 0
 
         if self.status == 'paid':
             status_label = 'PAGA'
@@ -269,7 +279,12 @@ class Invoice(db.Model):
             'due_date': self.due_date.strftime('%Y-%m-%d'),
             'status': self.status,
             'status_label': status_label,
-            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None
+            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None,
+            'cycle_start_date': cycle_start_date.strftime('%Y-%m-%d'),
+            'cycle_end_date': cycle_end_date.strftime('%Y-%m-%d'),
+            'cycle_label': f"{cycle_start_date.strftime('%d/%m')} → {cycle_end_date.strftime('%d/%m')}",
+            'days_to_close': max(0, days_to_close),
+            'days_to_due': max(0, days_to_due)
         }
 
 class Bill(db.Model):
