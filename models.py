@@ -64,6 +64,32 @@ class CreditCard(db.Model):
             Installment.paid == False
         ).scalar() or 0.0
         return total
+    
+
+    def get_due_date_for_cycle(self, month, year):
+        """Calcula a data de vencimento real para um ciclo, tratando virada de mês."""
+        days_in_month = monthrange(year, month)[1]
+        due_day = self.due_day or ((self.closing_day or 1) + 7)
+
+        if due_day <= days_in_month:
+            return datetime(year, month, due_day)
+        
+        overflow = due_day - days_in_month
+        return datetime(year, month, days_in_month) + timedelta(days=overflow)
+
+    def get_cycle_dates(self, month, year):
+        """Retorna (start_date, end_date, due_date) para um ciclo específico."""
+        days_in_month = monthrange(year, month)[1]
+        closing_day = min(self.closing_day, days_in_month)
+        end_date = datetime(year, month, closing_day)
+
+        prev_date = end_date - relativedelta(months=1)
+        prev_days = monthrange(prev_date.year, prev_date.month)[1]
+        prev_closing = min(self.closing_day, prev_days)
+        start_date = datetime(prev_date.year, prev_date.month, prev_closing) + timedelta(days=1)
+
+        due_date = self.get_due_date_for_cycle(month, year) 
+        return start_date, end_date, due_date
 
     def to_dict(self):
         today = datetime.now()
@@ -116,21 +142,6 @@ class Transaction(db.Model):
 
         return ref.month, ref.year
 
-    def _invoice_due_date(self, month: int, year: int) -> datetime:
-        """Calcula vencimento da fatura do cartão para um statement (mês/ano).
-
-        Suporta due_day > último dia do mês (ex.: default fechamento + 7 dias).
-        """
-        card = self.card
-        due_day = card.due_day or ((card.closing_day or 1) + 7)
-
-        days_in_month = monthrange(year, month)[1]
-        if due_day <= days_in_month:
-            return datetime(year, month, due_day)
-
-        overflow = due_day - days_in_month
-        return datetime(year, month, days_in_month) + timedelta(days=overflow)
-
     def create_installments(self):
         """Cria parcelas de forma não ambígua.
 
@@ -140,7 +151,7 @@ class Transaction(db.Model):
         first_month, first_year = self._first_statement_month_year()
 
         if self.installments_total == 1:
-            due_date = self._invoice_due_date(first_month, first_year)
+            due_date = self.card.get_due_date_for_cycle(first_month, first_year)
             installment = Installment(
                 transaction_id=self.id,
                 installment_number=1,
@@ -160,7 +171,7 @@ class Transaction(db.Model):
             for i in range(1, self.installments_total + 1):
                 ref = base + relativedelta(months=(i - 1))
                 stmt_month, stmt_year = ref.month, ref.year
-                due_date = self._invoice_due_date(stmt_month, stmt_year)
+                due_date = self.card.get_due_date_for_cycle(stmt_month, stmt_year)
 
                 installment = Installment(
                     transaction_id=self.id,
@@ -231,6 +242,7 @@ class Installment(db.Model):
             'anticipated_at': self.anticipated_at.strftime('%Y-%m-%d %H:%M:%S') if self.anticipated_at else None,
             'anticipated_from_month': self.anticipated_from_month,
             'anticipated_from_year': self.anticipated_from_year,
+            'days_to_due': max(0, (self.due_date - datetime.now()).days) if self.due_date else 0
         }
 
 class Invoice(db.Model):
@@ -249,13 +261,14 @@ class Invoice(db.Model):
 
     def to_dict(self):
         today = datetime.now()
-        reference_date = datetime(self.year, self.month, 1)
+        start_date, end_date, due_date = self.card.get_cycle_dates(self.month, self.year)
 
+        reference_date = datetime(self.year, self.month, 1)
         if self.status == 'paid':
             status_label = 'PAGA'
-        elif reference_date.year < today.year or (reference_date.year == today.year and reference_date.month < today.month):
+        elif reference_date < datetime(today.year, today.month, 1):
             status_label = 'ATRASADA'
-        elif reference_date.year == today.year and reference_date.month == today.month:
+        elif self.month == today.month and self.year == today.year:
             status_label = 'ATUAL'
         else:
             status_label = 'FUTURA'
@@ -265,11 +278,19 @@ class Invoice(db.Model):
             'card_id': self.card_id,
             'month': self.month,
             'year': self.year,
-            'amount': self.amount,
-            'due_date': self.due_date.strftime('%Y-%m-%d'),
+            'amount': float(self.amount),
             'status': self.status,
             'status_label': status_label,
-            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None
+            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None,
+            # Datas formatadas para a UI
+            'due_date': due_date.strftime('%Y-%m-%d'),
+            'cycle_start_date': start_date.strftime('%Y-%m-%d'),
+            'cycle_end_date': end_date.strftime('%Y-%m-%d'),
+            'cycle_label': f"{start_date.strftime('%d/%m')} → {end_date.strftime('%d/%m')}",
+            # Campos de contagem (Critério de Aceite da Issue)
+            'days_to_close': max(0, (end_date - today).days) if end_date > today else 0,
+            'days_to_due': max(0, (due_date - today).days) if due_date > today else 0,
+            'is_closed': today > end_date
         }
 
 class Bill(db.Model):
