@@ -1,26 +1,11 @@
 from flask import Blueprint, request, jsonify, render_template, session
 from models import CreditCard, Invoice, Transaction, Installment, Bill, Account
 from database import db
-from datetime import datetime, timedelta
+from datetime import datetime
 from calendar import monthrange
 import traceback
 
 invoices_bp = Blueprint('invoices', __name__, url_prefix='/invoices')
-
-
-def _invoice_due_date(card: CreditCard, month: int, year: int) -> datetime:
-    """Vencimento da fatura para um mês/ano.
-
-    Suporta due_day > último dia do mês (ex.: fechamento + 7 dias).
-    """
-    due_day = card.due_day or ((card.closing_day or 1) + 7)
-    days_in_month = monthrange(year, month)[1]
-
-    if due_day <= days_in_month:
-        return datetime(year, month, due_day)
-
-    overflow = due_day - days_in_month
-    return datetime(year, month, days_in_month) + timedelta(days=overflow)
 
 
 @invoices_bp.route('/')
@@ -208,7 +193,7 @@ def get_invoices():
                         month=month,
                         year=year,
                         amount=amount,
-                        due_date=_invoice_due_date(card, month, year),
+                        due_date=card.get_due_date_for_cycle( month, year),
                         status='open'
                     )
                     db.session.add(invoice)

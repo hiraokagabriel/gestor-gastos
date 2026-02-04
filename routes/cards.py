@@ -49,21 +49,6 @@ def _suggest_target_statement(card: CreditCard):
     return today.month, today.year, 'current'
 
 
-def _invoice_due_date(card: CreditCard, month: int, year: int) -> datetime:
-    """Vencimento da fatura para um statement.
-
-    Suporta due_day > último dia do mês (caso default seja fechamento + 7 dias e caia no mês seguinte).
-    """
-    due_day = card.due_day or ((card.closing_day or 1) + 7)
-    days_in_month = monthrange(year, month)[1]
-
-    if due_day <= days_in_month:
-        return datetime(year, month, due_day)
-
-    overflow = due_day - days_in_month
-    return datetime(year, month, days_in_month) + timedelta(days=overflow)
-
-
 def _get_or_create_invoice(card: CreditCard, month: int, year: int) -> Invoice | None:
     amount = card.get_bill_for_month(month, year)
     invoice = Invoice.query.filter_by(card_id=card.id, month=month, year=year).first()
@@ -74,7 +59,7 @@ def _get_or_create_invoice(card: CreditCard, month: int, year: int) -> Invoice |
             month=month,
             year=year,
             amount=amount,
-            due_date=_invoice_due_date(card, month, year),
+            due_date=card.get_due_date_for_cycle(month, year),
             status='open'
         )
         db.session.add(invoice)
@@ -364,7 +349,7 @@ def anticipate_installments(transaction_id):
         # Move para a fatura destino
         inst.statement_month = target_month
         inst.statement_year = target_year
-        inst.due_date = _invoice_due_date(card, target_month, target_year)
+        inst.due_date = card.get_due_date_for_cycle(target_month, target_year)
 
         moved += 1
 
